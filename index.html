@@ -11,7 +11,6 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter+Tight:wght@500;600;700&display=swap">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 /* Layout: a dark instrument-console app. One narrow column for Today/session; wider grid for Progress, Map, Library. */
 :root{
@@ -172,26 +171,29 @@ function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 function colLetter(i){let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26)}return s}
 
 /* ---------- Google auth + Sheets API ---------- */
-const AUTH={token:null,exp:0,client:null,pending:null};
+const AUTH={token:null,exp:0};
 (()=>{const t=lsGet('pc.tok');if(t&&t.exp>Date.now()+60000){AUTH.token=t.token;AUTH.exp=t.exp}})();
 function hasToken(){return !!AUTH.token&&AUTH.exp>Date.now()+30000}
-function initClient(){
-  if(AUTH.client)return true;
-  if(!(window.google&&google.accounts&&google.accounts.oauth2))return false;
-  AUTH.client=google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:SCOPE,
-    callback:r=>{const p=AUTH.pending;AUTH.pending=null;if(!p)return;
-      if(r.error){p.rej({code:'auth_denied',message:r.error_description||r.error});return}
-      AUTH.token=r.access_token;AUTH.exp=Date.now()+(Number(r.expires_in)||3600)*1000;
-      lsSet('pc.tok',{token:AUTH.token,exp:AUTH.exp});lsSet('pc.consented',true);p.res()},
-    error_callback:e=>{const p=AUTH.pending;AUTH.pending=null;if(p)p.rej({code:e&&e.type==='popup_failed_to_open'?'popup_blocked':'auth_cancelled'})}});
-  return true;
+function redirectUri(){return location.origin+location.pathname.replace(/index\.html$/,'')}
+// Full-page OAuth redirect (works inside installed apps, where sign-in pop-ups fail).
+function signIn(){
+  persistLog();saveActive();
+  const state=Math.random().toString(36).slice(2);try{sessionStorage.setItem('pc.oauthState',state)}catch(e){}
+  lsSet('pc.oauthState',state);
+  const q=new URLSearchParams({client_id:CLIENT_ID,redirect_uri:redirectUri(),response_type:'token',scope:SCOPE,include_granted_scopes:'true',state,prompt:lsGet('pc.consented')?'':'consent'});
+  if(!lsGet('pc.consented'))q.set('prompt','consent');else q.delete('prompt');
+  location.assign('https://accounts.google.com/o/oauth2/v2/auth?'+q.toString());
+  return new Promise(()=>{});
 }
-function signIn(){return new Promise((res,rej)=>{
-  if(!initClient()){rej({code:'gis_unavailable'});return}
-  if(AUTH.pending)AUTH.pending.rej({code:'auth_cancelled'});
-  AUTH.pending={res,rej};
-  try{AUTH.client.requestAccessToken({prompt:lsGet('pc.consented')?'':'consent'})}catch(e){AUTH.pending=null;rej({code:'auth_failed'})}
-})}
+function handleOAuthReturn(){
+  const h=location.hash.startsWith('#')?location.hash.slice(1):'';if(!h||!/(access_token|error)=/.test(h))return;
+  const p=new URLSearchParams(h);history.replaceState(null,'',location.pathname+location.search);
+  const want=lsGet('pc.oauthState');lsSet('pc.oauthState',null);
+  if(p.get('error')){S.libErr={code:p.get('error')==='access_denied'?'auth_denied':'auth_failed',message:p.get('error')};return}
+  if(!want||p.get('state')!==want){S.libErr={code:'auth_failed',message:'sign-in state mismatch, try again'};return}
+  AUTH.token=p.get('access_token');AUTH.exp=Date.now()+(Number(p.get('expires_in'))||3600)*1000;
+  lsSet('pc.tok',{token:AUTH.token,exp:AUTH.exp});lsSet('pc.consented',true);
+}
 async function ensureAuth(){if(!hasToken())await signIn()}
 async function api(path,opts){
   if(!hasToken())throw {code:'auth'};
@@ -691,7 +693,7 @@ document.addEventListener('submit',async ev=>{
   if(!S.lib){msg.textContent='Load your library first.';return}
   msg.textContent='Adding…';
   try{
-    await ensureAuth();
+    if(!hasToken()){msg.textContent='Tap Connect at the top first, then add it.';return}
     const a=await getValues('Activities!A1:A1000');let row=null;for(let i=1;i<a.length;i++){if(!String((a[i]||[])[0]||'').trim()){row=i+1;break}}if(row==null)row=a.length+1;
     const I=S.lib.cols;const vals=[];const put=(k,v)=>{if(I[k]>=0)vals[I[k]]=v};
     put('name',name);put('link',$('#'+p+'-add-link').value.trim());put('cat',$('#'+p+'-add-cat').value);put('notes',$('#'+p+'-add-note').value.trim());
@@ -706,14 +708,12 @@ function syncLogFields(){const m=$('#log-min'),n=$('#log-note');if(m)S.log.minut
 async function saveSession(){
   syncLogFields();const L=S.log,a=S.active;if(!a)return;
   if(!((L.minutes||0)>=1)){L.err='Enter how many minutes you practiced.';render();return}
-  const authP=hasToken()?Promise.resolve():signIn().catch(()=>null);
   const cats=logCats(L);const primary=cats.includes(a.category)?a.category:cats[0];
   const doc={id:'s-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),activityId:a.activityId||null,activityName:a.activityName,category:primary,categories:cats,
     focus:cats.includes(a.category)?a.focus:'',thread:a.thread||'',start:a.startedAt,minutes:Math.round(L.minutes),short:L.minutes<30,note:L.note.trim(),rating:L.rating||null,
     bypass:a.bypass,offered:a.offered||[],addedActivities:L.added,metronome:M.usedFor===a.startedAt?{bpm:M.bpm,pattern:M.pattern.join('')}:null};
   const q=queue();q.push(doc);lsSet('pc.queue',q);
   clearDrafts();metroStop();M.loadedKey=null;S.active=null;S.log=null;saveActive();S.skip.clear();mergeSessions();render();window.scrollTo(0,0);
-  await authP;
   if(hasToken()){
     try{if(S.sheetLoaded){await flushQueue();mergeSessions()}else await sync(false);
       toast(queue().length?'Saved on this device. It will reach your sheet on the next sync.':'Saved to your sheet · +'+doc.minutes+' XP')}
@@ -725,6 +725,7 @@ setInterval(()=>{if(S.tab!=='today'||!S.active||S.log)return;const el=$('#timer'
   const fb=$('#finish-btn');if(fb)fb.classList.toggle('done',ms>=30*60000)},1000);
 
 /* ---------- Boot ---------- */
+handleOAuthReturn();
 const cached=lsGet('pc.lib');if(cached&&cached.raw){try{S.lib=parseLibrary(...cached.raw);S.libSyncedAt=cached.at}catch(e){}}
 S.sheetSessions=lsGet('pc.sessions')||[];
 S.active=lsGet('pc.active');
