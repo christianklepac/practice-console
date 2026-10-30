@@ -410,7 +410,13 @@ function libBanner(){
   if(S.sesErr&&!S.authNeeded)parts.push(`<div class="banner bad" role="status"><span class="msg">Couldn’t read the Sessions tab${S.sesErr.message?': '+esc(S.sesErr.message):''}. New sessions stay on this device until it’s fixed.</span></div>`);
   return parts.join('');
 }
-function dbBanner(){return ''}
+function dbBanner(){
+  if(!S.installEvt||S.installed)return '';
+  return `<div class="banner" role="status"><span class="msg">Install Practice Console as an app on this device.</span><button class="btn primary" data-act="install">Install</button></div>`;
+}
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();S.installEvt=e;render()});
+window.addEventListener('appinstalled',()=>{S.installEvt=null;S.installed=true;toast('Installed. Look for Practice in your app drawer.');render()});
+if(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)S.installed=true;
 
 function renderToday(){
   if(S.log)return renderLog();
@@ -626,6 +632,7 @@ function renderLibrary(){
     const pill=inbox?'<span class="pill warn">INBOX</span>':a.missing?'<span class="pill warn">'+esc(a.missing.toUpperCase())+'</span>':!el?`<span class="pill">${esc((a.status||'').toUpperCase()||'OFF')}</span>`:a.pinned?'<span class="pill ok">PINNED</span>':'';
     return `<button class="libitem" data-act="start-lib" data-row="${a.row}"><span class="code sm" style="background:${a.cat?col(a.cat):'var(--panel-2)'}">${esc(a.cat||'?')}</span><span class="body" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font-weight:600">${esc(a.name)}</span><span class="note" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc([a.focus,a.thread&&'Thread: '+a.thread].filter(Boolean).join(' · ')||a.notes)}</span></span><span class="mono note" style="text-align:right;flex-shrink:0">${fmtAgo(last)}</span>${pill}</button>`}).join('');
   return `<div class="wrap wide">
+    ${dbBanner()}
     <header class="top"><h1>Library</h1><a href="${SHEET_URL}" target="_blank" rel="noopener" style="font-size:14px">Open the sheet ↗</a></header>
     ${libBanner()}
     <p class="note" style="margin:0">Tap any activity to start a session with it. Synced ${S.libSyncedAt?fmtAgo(S.libSyncedAt)+' at '+new Date(S.libSyncedAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}):'—'} · <button class="link" data-act="reload-lib" style="min-height:0;padding:0">Refresh</button></p>
@@ -674,6 +681,7 @@ document.addEventListener('click',async ev=>{
   else if(act==='rate'){S.log.rating=+b.dataset.n;syncLogFields();persistLog();render()}
   else if(act==='save')saveSession();
   else if(act==='reload-lib'||act==='sync'){sync(true)}
+  else if(act==='install'){const e=S.installEvt;if(!e)return;S.installEvt=null;try{await e.prompt();const c=await e.userChoice;if(c&&c.outcome!=='accepted'){S.installEvt=e}}catch(err){}render()}
   else if(act==='libcat'){S.libCat=b.dataset.c;render()}
 });
 document.addEventListener('input',ev=>{

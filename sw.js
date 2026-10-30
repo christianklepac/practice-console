@@ -1,6 +1,6 @@
 // Network-first for the app's own files, so updates arrive on the next open;
 // falls back to the cached copy when offline. Google APIs and fonts are not cached.
-const CACHE = 'pc-v2';
+const CACHE = 'pc-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png'];
 
 self.addEventListener('install', e => {
