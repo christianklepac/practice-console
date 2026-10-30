@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Practice Console</title>
+<meta name="theme-color" content="#141518">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter+Tight:wght@500;600;700&display=swap">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+/* Layout: a dark instrument-console app. One narrow column for Today/session; wider grid for Progress, Map, Library. */
+:root{
+  --bg:#141518; --panel:#1E2025; --panel-2:#26282E; --line:#2E3138; --fg:#EDEDED; --muted:#A0A4AD; --faint:#6E727B;
+  --accent:#F2B544; --ok:#8BD17C; --warn:#F2B544; --bad:#F07A6E;
+  --font-ui:'Inter Tight',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;
+  --cA:#F2B544; --cB:#5FB3F0; --cC:#8BD17C; --cD1:#E77FA8; --cD2:#B79CF2; --cE:#F08A5D; --cF:#4FD1C5; --cG:#C9D1DD;
+  color-scheme:dark;
+}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--font-ui);font-size:15px;line-height:1.45;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 96px}
+*{box-sizing:border-box}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+a{color:var(--accent)}
+.mono{font-family:var(--font-mono)}
+.label{font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:18px;padding-top:22px}
+.wide{max-width:1100px}
+header.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{margin:0;font-size:32px;line-height:1.05;font-weight:700;letter-spacing:-.02em;text-wrap:balance}
+h1 .sub{color:var(--muted);font-weight:600}
+h2{margin:0;font-size:18px;font-weight:600}
+.banner{background:var(--panel);border:1px solid var(--line);border-left:0;border-radius:12px;padding:12px 14px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;font-size:14px}
+.banner.bad{border-color:#5a2e2b}
+.banner .msg{min-width:0;flex:1 1 240px}
+.btn{border:1px solid var(--line);background:var(--panel-2);border-radius:10px;padding:0 14px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:14px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#141518}
+.btn.big{min-height:54px;font-size:17px;border-radius:14px;width:100%}
+.btn.primary.done{background:var(--ok);border-color:var(--ok)}
+.btn.ghost{background:transparent}
+.btn:disabled{opacity:.5;cursor:default}
+.link{background:none;border:0;color:var(--accent);padding:6px 2px;font-size:14px;min-height:44px}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.stat{background:var(--panel);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.stat .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.segs{display:flex;gap:4px;padding-top:8px}
+.segs span{flex:1;height:10px;border-radius:2px;background:#33363D}
+.segs span.on{background:var(--accent)}
+.choices{display:flex;flex-direction:column;gap:10px}
+.choice{all:unset;box-sizing:border-box;cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;gap:14px;align-items:center}
+.choice:hover{border-color:#454952}
+.choice:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.code{width:40px;height:40px;border-radius:10px;color:#141518;font-family:var(--font-mono);font-weight:600;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.code.sm{width:28px;height:28px;border-radius:7px;font-size:12px}
+.choice .body{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+.choice .name{font-size:16px;font-weight:600}
+.choice .meta{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.choice .side{font-family:var(--font-mono);font-size:11px;color:var(--muted);text-align:right;line-height:1.4;flex-shrink:0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.meters{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px;align-items:end}
+.meter{display:flex;flex-direction:column;align-items:center;gap:5px}
+.meter .bar{width:20px;height:72px;background:var(--panel-2);border-radius:4px;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden}
+.meter .bar i{display:block;border-radius:4px}
+.meter .k{font-family:var(--font-mono);font-size:12px}
+.meter .lv{font-family:var(--font-mono);font-size:10px;color:var(--muted)}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;background:#17181C;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:8px max(8px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
+nav.tabs button{all:unset;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;color:var(--muted);min-height:44px;justify-content:center;border-radius:8px}
+nav.tabs button[aria-current="page"]{color:var(--accent)}
+nav.tabs button:focus-visible{outline:2px solid var(--accent)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}
+.timer{font-family:var(--font-mono);font-size:56px;font-weight:500;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}
+.prog{height:8px;background:#33363D;border-radius:4px;overflow:hidden}
+.prog i{display:block;height:8px;background:var(--accent);border-radius:4px}
+textarea,input[type=text],input[type=url],input[type=number],input[type=search],select{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 12px;font-size:15px}
+textarea{resize:vertical;min-height:84px}
+label.f{display:flex;flex-direction:column;gap:6px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--panel-2);border-radius:20px;min-height:40px;padding:0 14px;font-size:14px;display:inline-flex;align-items:center;gap:6px}
+.chip[aria-pressed="true"]{color:#141518;font-weight:700;border-color:transparent}
+.rating{display:flex;gap:6px}
+.rating button{width:44px;height:44px;border-radius:8px;border:1px solid var(--line);background:var(--panel-2);font-family:var(--font-mono)}
+.rating button[aria-pressed="true"]{background:var(--accent);color:#141518;font-weight:600;border-color:var(--accent)}
+.note{font-size:13px;color:var(--muted)}
+.err{color:var(--bad);font-size:14px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px}
+.list{display:flex;flex-direction:column}
+.li{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.li:first-child{border-top:0}
+.li .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.li .t{font-weight:600}
+.li .s{font-size:13px;color:var(--muted)}
+.li .r{font-family:var(--font-mono);font-size:12px;color:var(--muted);text-align:right;flex-shrink:0}
+.pill{font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;border-radius:6px;padding:2px 7px;background:var(--panel-2);color:var(--muted);white-space:nowrap}
+.pill.warn{background:#3A3524;color:var(--warn)}
+.pill.ok{background:#22331f;color:var(--ok)}
+.heat{overflow-x:auto}
+.heat svg{display:block}
+.mapbox{display:flex;justify-content:center}
+.mapbox svg{width:100%;max-width:640px;height:auto}
+.libitem{all:unset;box-sizing:border-box;cursor:pointer;display:flex;gap:12px;align-items:center;padding:10px 8px;border-radius:10px;width:100%}
+.libitem:hover{background:var(--panel-2)}
+.libitem:focus-visible{outline:2px solid var(--accent)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;z-index:9}
+.skel{color:var(--faint)}
+details summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
+.metro{display:flex;flex-direction:column;gap:14px}
+.bpmrow{display:grid;grid-template-columns:48px 48px minmax(0,1fr) 48px 48px;gap:6px;align-items:center}
+.bpmrow button{height:48px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);font-family:var(--font-mono);font-weight:600;font-size:15px;color:var(--accent);touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.bpmbox{display:flex;flex-direction:column;align-items:center;line-height:1}
+.bpmbox input{width:100%;max-width:140px;text-align:center;background:transparent;border:0;border-radius:8px;padding:0;font-family:var(--font-mono);font-size:44px;font-weight:500;font-variant-numeric:tabular-nums;-moz-appearance:textfield}
+.bpmbox input::-webkit-outer-spin-button,.bpmbox input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.bpmbox span{font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;color:var(--muted)}
+input[type=range]{width:100%;accent-color:var(--accent);margin:0}
+.beats{display:flex;gap:6px}
+.beat{flex:1;min-width:0;height:58px;border-radius:9px;border:1px solid var(--line);background:var(--panel-2);display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch;padding:5px;gap:4px;font-family:var(--font-mono);font-size:11px;color:var(--muted)}
+.beat i{display:block;border-radius:4px;background:var(--accent)}
+.beat.a i{height:100%}
+.beat.n i{height:45%;background:#8A6A2A}
+.beat.m{background:transparent;border-style:dashed}
+.beat.m i{height:0}
+.beat.now{border-color:var(--fg);box-shadow:0 0 0 2px var(--fg) inset}
+.mhead{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.count{display:flex;align-items:center;gap:6px}
+.count button{width:44px;height:44px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);font-size:18px}
+.count b{font-family:var(--font-mono);min-width:2ch;text-align:center}
+@media (prefers-reduced-motion:no-preference){.choice{transition:border-color .15s}}
+@media (max-width:420px){h1{font-size:28px}.timer{font-size:46px}.meters{gap:4px}.meter .bar{width:16px}}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;padding-top:env(safe-area-inset-top,0px)}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+<nav class="tabs" id="tabs" aria-label="Sections"></nav>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+(function(){
+const SHEET_ID='1xRTmAqpQfP0WJvsuw86uJZ7CtCqmmtIvbr1H_PHgoqM';
+const SHEET_URL='https://docs.google.com/spreadsheets/d/'+SHEET_ID+'/edit';
+const CLIENT_ID='780031919571-o7vnff1gdeqbh74erpomlm4kgkujbd2b.apps.googleusercontent.com';
+const SCOPE='https://www.googleapis.com/auth/spreadsheets';
+const API='https://sheets.googleapis.com/v4/spreadsheets/'+SHEET_ID;
+const DAY=86400000;
+const CAT_ORDER=['A','B','C','D1','D2','E','F','G'];
+const FALLBACK_NAMES={A:'Skill-building',B:'Vocabulary',C:'Repertoire',D1:'Songwriting, focused',D2:'Songwriting, exploratory',E:'Finishing',F:'Lesson',G:'Rehearsal'};
+const FINISH_STAGES=['demo','mixed','ongoing'];
+
+const S={tab:'today',lib:null,libErr:null,libSyncedAt:null,sessions:[],sheetSessions:[],sheetLoaded:false,active:null,authNeeded:false,syncing:false,sesErr:null,
+  skip:new Set(),log:null,libFilter:'',libCat:'',addMsg:'',toastT:null};
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const col=c=>`var(--c${CAT_ORDER.includes(c)?c:'G'})`;
+const startOfDay=t=>{const d=new Date(t);d.setHours(0,0,0,0);return d.getTime()};
+const daysAgo=t=>Math.floor((startOfDay(Date.now())-startOfDay(t))/DAY);
+const fmtAgo=t=>{if(t==null)return 'never';const d=daysAgo(t);return d===0?'today':d===1?'yesterday':d+' days ago'};
+const fmtDate=t=>new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+function toast(m){const el=$('#toast');el.textContent=m;el.hidden=false;clearTimeout(S.toastT);S.toastT=setTimeout(()=>el.hidden=true,2600)}
+function lsGet(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function colLetter(i){let s='';i++;while(i>0){const m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26)}return s}
+
+/* ---------- Google auth + Sheets API ---------- */
+const AUTH={token:null,exp:0,client:null,pending:null};
+(()=>{const t=lsGet('pc.tok');if(t&&t.exp>Date.now()+60000){AUTH.token=t.token;AUTH.exp=t.exp}})();
+function hasToken(){return !!AUTH.token&&AUTH.exp>Date.now()+30000}
+function initClient(){
+  if(AUTH.client)return true;
+  if(!(window.google&&google.accounts&&google.accounts.oauth2))return false;
+  AUTH.client=google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:SCOPE,
+    callback:r=>{const p=AUTH.pending;AUTH.pending=null;if(!p)return;
+      if(r.error){p.rej({code:'auth_denied',message:r.error_description||r.error});return}
+      AUTH.token=r.access_token;AUTH.exp=Date.now()+(Number(r.expires_in)||3600)*1000;
+      lsSet('pc.tok',{token:AUTH.token,exp:AUTH.exp});lsSet('pc.consented',true);p.res()},
+    error_callback:e=>{const p=AUTH.pending;AUTH.pending=null;if(p)p.rej({code:e&&e.type==='popup_failed_to_open'?'popup_blocked':'auth_cancelled'})}});
+  return true;
+}
+function signIn(){return new Promise((res,rej)=>{
+  if(!initClient()){rej({code:'gis_unavailable'});return}
+  if(AUTH.pending)AUTH.pending.rej({code:'auth_cancelled'});
+  AUTH.pending={res,rej};
+  try{AUTH.client.requestAccessToken({prompt:lsGet('pc.consented')?'':'consent'})}catch(e){AUTH.pending=null;rej({code:'auth_failed'})}
+})}
+async function ensureAuth(){if(!hasToken())await signIn()}
+async function api(path,opts){
+  if(!hasToken())throw {code:'auth'};
+  let r;try{r=await fetch(API+path,{...(opts||{}),headers:{Authorization:'Bearer '+AUTH.token,'Content-Type':'application/json'}})}catch(e){throw {code:'offline'}}
+  if(r.status===401){AUTH.token=null;lsSet('pc.tok',null);throw {code:'auth'}}
+  if(!r.ok){let m='';try{m=(await r.json()).error.message}catch(e){}throw {code:'http_'+r.status,message:m}}
+  return r.json();
+}
+async function batchGet(ranges,how){const q=ranges.map(x=>'ranges='+encodeURIComponent(x)).join('&');
+  const j=await api('/values:batchGet?'+q+'&valueRenderOption='+(how||'FORMATTED_VALUE'));return (j.valueRanges||[]).map(v=>v.values||[])}
+async function getValues(range){return (await batchGet([range]))[0]}
+async function updateValues(range,values){return api('/values/'+encodeURIComponent(range)+'?valueInputOption=USER_ENTERED',{method:'PUT',body:JSON.stringify({values})})}
+async function appendRows(range,values){return api('/values/'+encodeURIComponent(range)+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',{method:'POST',body:JSON.stringify({values})})}
+
+function parseLibrary(act,foc,thr,set){
+  const h=(act[0]||[]).map(x=>String(x).trim().toLowerCase());
+  const ix=n=>h.indexOf(n);
+  const I={name:ix('activity'),cat:ix('category'),focus:ix('focus'),kind:ix('kind'),thread:ix('thread'),link:ix('link'),every:ix('every (days)'),status:ix('status'),pinned:ix('pinned'),added:ix('added'),notes:ix('notes'),missing:ix('missing info'),id:ix('id')};
+  const g=(r,k)=>I[k]<0?'':String(r[I[k]]??'').trim();
+  const activities=[];let firstEmpty=null;
+  for(let i=1;i<act.length;i++){const r=act[i]||[];const name=g(r,'name');
+    if(!name){if(firstEmpty==null)firstEmpty=i+1;continue}
+    const every=parseFloat(g(r,'every'));const added=Date.parse(g(r,'added'));
+    activities.push({row:i+1,name,everyRaw:g(r,'every'),cat:g(r,'cat').toUpperCase(),focus:g(r,'focus'),kind:g(r,'kind'),thread:g(r,'thread'),link:g(r,'link'),
+      every:isFinite(every)&&every>0?every:null,status:g(r,'status'),pinned:g(r,'pinned').toUpperCase()==='TRUE',added:isFinite(added)?added:null,
+      notes:g(r,'notes'),missing:g(r,'missing'),id:g(r,'id')});}
+  if(firstEmpty==null)firstEmpty=act.length+1;
+  const focus=[];for(let i=1;i<foc.length;i++){const r=foc[i]||[];if(r[0])focus.push({name:String(r[0]).trim(),cat:String(r[1]||'').trim().toUpperCase()})}
+  const threads={};for(let i=1;i<thr.length;i++){const r=thr[i]||[];if(r[0])threads[String(r[0]).trim()]={name:String(r[0]).trim(),type:r[1]||'',stage:r[2]||'',status:r[3]||'',notes:r[4]||''}}
+  const cats={};let windowDays=14,weekly=4;
+  for(const r of set){const a=String((r||[])[0]||'').trim();
+    if(/^balance window/i.test(a)){const v=parseFloat(r[1]);if(v>0)windowDays=v;continue}
+    if(/^weekly session target/i.test(a)){const v=parseFloat(r[1]);if(v>0)weekly=v;continue}
+    if(/^(A|B|C|D1|D2|E|F|G|H)$/i.test(a)){const iv=parseFloat(r[2]),w=parseFloat(r[3]);cats[a.toUpperCase()]={code:a.toUpperCase(),name:r[1]||FALLBACK_NAMES[a.toUpperCase()]||a,interval:iv>0?iv:7,weight:isFinite(w)?w:1}}}
+  for(const c of CAT_ORDER)if(!cats[c])cats[c]={code:c,name:FALLBACK_NAMES[c],interval:7,weight:1};
+  const wsum=Object.values(cats).reduce((s,c)=>s+Math.max(0,c.weight),0)||1;
+  for(const c of Object.values(cats))c.target=Math.max(0,c.weight)/wsum;
+  return {activities,focus,threads,cats,windowDays,weekly,firstEmpty,idCol:I.id>=0?colLetter(I.id):null,cols:I};
+}
+
+async function sync(interactive){
+  if(S.syncing)return;
+  if(!hasToken()){
+    if(!interactive){S.authNeeded=true;render();return}
+    try{await signIn()}catch(e){S.authNeeded=true;S.libErr=e.code==='auth_cancelled'?null:e;render();return}
+  }
+  S.syncing=true;render();
+  try{
+    const [a,f,t,s]=await batchGet(['Activities!A1:Z1000',"'Focus areas'!A1:Z200",'Threads!A1:Z200','Settings!A1:Z60']);
+    S.lib=parseLibrary(a,f,t,s);S.libSyncedAt=Date.now();lsSet('pc.lib',{raw:[a,f,t,s],at:S.libSyncedAt});
+    let ses=null;try{ses=(await batchGet(['Sessions!A1:Z5000'],'UNFORMATTED_VALUE'))[0]}catch(e){if(e.code==='auth')throw e;S.sesErr=e}
+    if(ses){S.sheetSessions=parseSessions(ses);S.sheetLoaded=true;S.sesErr=null;lsSet('pc.sessions',S.sheetSessions);await flushQueue()}
+    S.libErr=null;S.authNeeded=false;
+  }catch(e){if(e.code==='auth')S.authNeeded=true;else S.libErr=e}
+  S.syncing=false;mergeSessions();render();
+}
+const loadLibrary=()=>sync(false);
+
+/* ---------- Sessions in the sheet ---------- */
+function parseSessions(rows){
+  const h=(rows[0]||[]).map(x=>String(x).trim().toLowerCase());const out=[];
+  for(let i=1;i<rows.length;i++){const r=rows[i]||[];const g=n=>{const j=h.indexOf(n);return j<0?'':(r[j]??'')};
+    const start=Number(g('start (ms)'));if(!start)continue;
+    const cats=String(g('categories')||g('category')).split(',').map(x=>x.trim().toUpperCase()).filter(Boolean);
+    const bpm=Number(g('metronome bpm'));
+    out.push({id:String(g('session id')||('row'+(i+1))),start,activityName:String(g('activity')),category:String(g('category')).toUpperCase()||cats[0]||'',
+      categories:cats,focus:String(g('focus')),thread:String(g('thread')),minutes:Number(g('minutes'))||0,note:String(g('note')),rating:Number(g('rating'))||null,
+      activityId:String(g('activity id'))||null,metronome:bpm?{bpm,pattern:String(g('metronome pattern'))}:null,short:g('short')===true,bypass:g('bypass')===true});}
+  return out.sort((x,y)=>y.start-x.start);
+}
+function sessionRow(d){const t=new Date(d.start);const p=n=>String(n).padStart(2,'0');
+  return [`${t.getFullYear()}-${p(t.getMonth()+1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`,d.activityName,d.category,d.minutes,d.note,d.rating||'',
+    d.categories.join(', '),d.focus||'',d.thread||'',d.metronome?d.metronome.bpm:'',d.metronome?d.metronome.pattern:'',!!d.short,!!d.bypass,
+    (d.offered||[]).join(', '),(d.addedActivities||[]).join(', '),d.activityId||'',d.start,d.id]}
+function queue(){return lsGet('pc.queue')||[]}
+async function flushQueue(){const q=queue();if(!q.length)return 0;
+  const have=new Set(S.sheetSessions.map(s=>s.id));const todo=q.filter(s=>!have.has(s.id));
+  if(todo.length){await appendRows('Sessions!A1',todo.map(sessionRow));S.sheetSessions=[...todo,...S.sheetSessions].sort((x,y)=>y.start-x.start);lsSet('pc.sessions',S.sheetSessions)}
+  lsSet('pc.queue',[]);return todo.length}
+function mergeSessions(){const ids=new Set(S.sheetSessions.map(s=>s.id));S.sessions=[...queue().filter(s=>!ids.has(s.id)),...S.sheetSessions].sort((x,y)=>y.start-x.start)}
+
+/* ---------- Library check ---------- */
+const STAGES=['idea','draft','demo','mixed','released','learning','solid','ongoing'];
+function checkLibrary(lib){
+  const out=[];const add=(row,name,msg,level)=>out.push({row,name,msg,level:level||'warn'});
+  const fmap={};for(const f of lib.focus)fmap[f.name.toLowerCase()]=f.cat;
+  const names={},ids={};
+  for(const a of lib.activities){
+    const active=/^active$/i.test(a.status);
+    if(a.status&&!/^(active|paused|done)$/i.test(a.status))add(a.row,a.name,`Status “${a.status}” isn’t Active, Paused or Done, so it’s treated as off.`);
+    if(!a.cat){if(active)add(a.row,a.name,'Active but has no category, so it can’t be offered.')}
+    else if(!lib.cats[a.cat])add(a.row,a.name,`Category “${a.cat}” isn’t on the Settings tab.`);
+    if(a.focus){const fc=fmap[a.focus.toLowerCase()];
+      if(fc===undefined)add(a.row,a.name,`Focus “${a.focus}” isn’t on the Focus areas tab.`);
+      else if(fc&&a.cat&&fc!==a.cat)add(a.row,a.name,`Focus “${a.focus}” belongs to ${fc}, but this row is ${a.cat}.`);}
+    if(a.everyRaw&&!(parseFloat(a.everyRaw)>0))add(a.row,a.name,`Every (days) “${a.everyRaw}” isn’t a positive number, so the category default is used.`);
+    if(a.thread&&!lib.threads[a.thread])add(a.row,a.name,`Thread “${a.thread}” isn’t on the Threads tab.`);
+    if(/^thread work$/i.test(a.kind)&&!a.thread)add(a.row,a.name,'Kind is Thread work but no thread is set.');
+    if(active&&a.cat==='E'&&a.thread&&lib.threads[a.thread]&&!FINISH_STAGES.includes(String(lib.threads[a.thread].stage).toLowerCase()))
+      add(a.row,a.name,`Won’t be offered until “${a.thread}” reaches Demo, Mixed or Ongoing.`,'info');
+    const nk=a.name.trim().toLowerCase();if(names[nk])add(a.row,a.name,`Same name as row ${names[nk]}. Session history can mix the two up.`);else names[nk]=a.row;
+    if(a.id){if(ids[a.id])add(a.row,a.name,`Same ID as row ${ids[a.id]}. Clear the ID on the copied row.`);else ids[a.id]=a.row}
+  }
+  for(const t of Object.values(lib.threads)){
+    if(t.stage&&!STAGES.includes(String(t.stage).toLowerCase()))out.push({row:null,name:t.name,msg:`Thread stage “${t.stage}” isn’t a known stage.`,level:'warn',tab:'Threads'});
+  }
+  return out;
+}
+function issuesHtml(issues){
+  return `<div class="list">${issues.map(i=>`<div class="li"><span class="pill ${i.level==='warn'?'warn':''}">${i.row?'ROW '+i.row:esc((i.tab||'').toUpperCase())}</span><span class="body"><span class="t">${esc(i.name)}</span><span class="s">${esc(i.msg)}</span></span></div>`).join('')}</div>`;
+}
+
+/* ---------- Scoring ---------- */
+const keyOf=a=>a.id||('name:'+a.name);
+function sessionsFor(a){return S.sessions.filter(s=>(a.id&&s.activityId===a.id)||s.activityName===a.name)}
+function lastDone(a){let m=null;for(const s of sessionsFor(a))if(m==null||s.start>m)m=s.start;return m}
+function eligible(a,lib){
+  if(!/^active$/i.test(a.status))return false;
+  if(!lib.cats[a.cat])return false;
+  if(/^one-off$/i.test(a.kind)&&lastDone(a)!=null)return false;
+  if(a.thread){const t=lib.threads[a.thread];
+    if(t&&t.status&&!/^active$/i.test(t.status))return false;
+    if(a.cat==='E'&&t&&!FINISH_STAGES.includes(String(t.stage).toLowerCase()))return false;}
+  return true;
+}
+function balances(lib){
+  const since=Date.now()-lib.windowDays*DAY;const win=S.sessions.filter(s=>s.start>=since);
+  const total=win.length;const cb={};
+  for(const c of Object.values(lib.cats)){const n=win.reduce((t,s)=>t+catWeight(s,c.code),0);const share=total?n/total:c.target;
+    cb[c.code]=Math.min(3,Math.max(.33,(c.target+.03)/(share+.03)));}
+  const fb={};const byCat={};
+  for(const a of lib.activities)if(eligible(a,lib)){(byCat[a.cat]=byCat[a.cat]||new Set()).add(a.focus||'—')}
+  for(const [cat,set] of Object.entries(byCat)){const n=set.size;const cw=win.filter(s=>focusFor(s,cat));
+    for(const f of set){const k=cat+'|'+f;if(n<2||!cw.length){fb[k]=1;continue}
+      const share=cw.filter(s=>focusFor(s,cat)===f).length/cw.length;fb[k]=Math.min(3,Math.max(.33,(1/n+.03)/(share+.03)));}}
+  return {cb,fb};
+}
+function dayHash(s){const k=s+'|'+new Date().toDateString();let h=2166136261;for(let i=0;i<k.length;i++){h^=k.charCodeAt(i);h=Math.imul(h,16777619)}return ((h>>>0)%1000)/1000}
+function scoreAll(lib){
+  const {cb,fb}=balances(lib);
+  return lib.activities.filter(a=>eligible(a,lib)).map(a=>{
+    const last=lastDone(a);const iv=a.every||lib.cats[a.cat].interval;
+    const overdue=last==null?1.5:Math.min(5,Math.max(.05,(Date.now()-last)/DAY/iv));
+    const nov=(last==null&&a.added&&Date.now()-a.added<10*DAY)?1.6:1;
+    const jit=1+0.08*dayHash(a.name);
+    const score=a.pinned?999:overdue*(cb[a.cat]||1)*(fb[a.cat+'|'+(a.focus||'—')]||1)*nov*jit;
+    return {a,last,iv,overdue,score};
+  }).sort((x,y)=>y.score-x.score);
+}
+function pickThree(lib){
+  const scored=scoreAll(lib).filter(x=>!S.skip.has(keyOf(x.a)));
+  const picks=[];const used=new Set();
+  for(const x of scored){if(picks.length>=3)break;if(x.a.pinned||!used.has(x.a.cat)){picks.push(x);used.add(x.a.cat)}}
+  if(picks.length&&!picks.some(p=>p.a.thread)){
+    const th=scored.find(x=>x.a.thread&&!picks.includes(x)&&!picks.slice(0,-1).some(p=>p.a.cat===x.a.cat));
+    if(th&&picks.length===3&&!picks[2].a.pinned)picks[2]=th;}
+  return {picks,remaining:scored.length};
+}
+
+/* ---------- Stats ---------- */
+function catsOf(s){return Array.isArray(s.categories)&&s.categories.length?s.categories:[s.category]}
+function catWeight(s,c){const cs=catsOf(s);return cs.includes(c)?1/cs.length:0}
+function focusFor(s,c){const home=s.activityCategory||s.category;return c===home?(s.focus||''):''}
+function logCats(L){return Array.isArray(L.categories)&&L.categories.length?L.categories:[L.category]}
+function streak(){const days=new Set(S.sessions.map(s=>startOfDay(s.start)));let d=startOfDay(Date.now());if(!days.has(d))d-=DAY;let n=0;while(days.has(d)){n++;d-=DAY}return n}
+function weekCount(){const now=new Date();const dow=(now.getDay()+6)%7;const mon=startOfDay(Date.now())-dow*DAY;return S.sessions.filter(s=>s.start>=mon).length}
+function level(min){const lv=Math.floor(Math.sqrt(min/30))+1;const lo=30*(lv-1)**2,hi=30*lv**2;return {lv,frac:(min-lo)/(hi-lo)}}
+function xpByCat(sinceMs){const m={};for(const s of S.sessions)if(!sinceMs||s.start>=sinceMs){const cs=catsOf(s);for(const c of cs)m[c]=(m[c]||0)+(s.minutes||0)/cs.length}
+  for(const k in m)m[k]=Math.round(m[k]);return m}
+
+/* ---------- Active session (this device) ---------- */
+function saveActive(){if(S.active)lsSet('pc.active',S.active);else try{localStorage.removeItem('pc.active')}catch(e){}}
+async function ensureId(a){
+  if(a.id||!hasToken()||!S.lib||!S.lib.idCol)return a.id;
+  const id='act-'+Math.random().toString(36).slice(2,8);
+  try{const chk=await getValues('Activities!A'+a.row);if(String((chk[0]||[])[0]||'').trim()!==a.name)return null;
+    await updateValues('Activities!'+S.lib.idCol+a.row,[[id]]);a.id=id;return id}catch(e){return null}
+}
+function startSession(a,bypass,offered){
+  const doc={activityId:a.id||null,activityName:a.name,category:a.cat,focus:a.focus||'',thread:a.thread||'',link:a.link||'',notes:a.notes||'',
+    startedAt:Date.now(),pausedMs:0,pausedAt:null,targetMin:30,scratch:'',bypass:!!bypass,offered:offered||[]};
+  S.active=doc;saveActive();S.tab='today';S.log=null;M.loadedKey=null;metroLoadFor();render();window.scrollTo(0,0);
+  ensureId(a).then(id=>{if(id&&S.active&&S.active.startedAt===doc.startedAt){S.active.activityId=id;saveActive()}});
+}
+function elapsedMs(a){const now=Date.now();return Math.max(0,now-a.startedAt-(a.pausedMs||0)-(a.pausedAt?now-a.pausedAt:0))}
+function patchActive(p){if(!S.active)return;Object.assign(S.active,p);saveActive();render()}
+
+/* ---------- Render ---------- */
+const ICON={today:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',progress:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',map:'<circle cx="12" cy="12" r="2"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="7" r="2"/><circle cx="17" cy="19" r="2"/><path d="M10.5 10.8 6.5 7.3M13.8 11.3l3.6-2.8M13 13.8l3 3.6"/>',library:'<path d="M5 4h14v16H5zM9 9h6M9 13h6"/>'};
+function renderTabs(){
+  const t=[['today','Today'],['progress','Progress'],['map','Map'],['library','Library']];
+  $('#tabs').innerHTML=t.map(([k,l])=>`<button type="button" data-tab="${k}" ${S.tab===k?'aria-current="page"':''}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">${ICON[k]}</svg>${l}</button>`).join('');
+}
+function libBanner(){
+  const q=queue().length;const parts=[];
+  const qtxt=q?` ${q} ${q===1?'session is':'sessions are'} saved on this device and not yet in your sheet.`:'';
+  if(S.syncing)return `<div class="banner" role="status"><span class="msg">Syncing with your sheet…</span></div>`;
+  if(S.authNeeded){
+    parts.push(`<div class="banner" role="status"><span class="msg">Connect Google to ${S.lib?'refresh your library':'load your library'} and save sessions to your sheet.${qtxt}</span><button class="btn primary" data-act="sync">Connect</button></div>`);
+  } else if(S.libErr){
+    const c=S.libErr.code||'';let m;
+    if(c==='offline')m='You’re offline.';
+    else if(c==='gis_unavailable')m='Google sign-in didn’t load. Check your connection.';
+    else if(c==='popup_blocked')m='The Google sign-in window was blocked. Allow pop-ups for this site, then try again.';
+    else if(c==='auth_denied')m='Google sign-in was declined.';
+    else if(c==='http_403')m='Google refused access to the sheet. Sign in with the account that owns it.';
+    else if(c==='http_404')m='The library sheet wasn’t found.';
+    else m='Couldn’t reach your library sheet ('+esc(c||'error')+(S.libErr.message?': '+esc(S.libErr.message):'')+').';
+    const stale=S.lib&&S.libSyncedAt?` Showing the copy from ${fmtDate(S.libSyncedAt)}.`:'';
+    parts.push(`<div class="banner bad" role="status"><span class="msg">${m}${stale}${qtxt}</span><button class="btn" data-act="sync">Try again</button></div>`);
+  } else if(q){
+    parts.push(`<div class="banner" role="status"><span class="msg">${qtxt.trim()}</span><button class="btn" data-act="sync">Sync now</button></div>`);
+  }
+  if(S.sesErr&&!S.authNeeded)parts.push(`<div class="banner bad" role="status"><span class="msg">Couldn’t read the Sessions tab${S.sesErr.message?': '+esc(S.sesErr.message):''}. New sessions stay on this device until it’s fixed.</span></div>`);
+  return parts.join('');
+}
+function dbBanner(){return ''}
+
+function renderToday(){
+  if(S.log)return renderLog();
+  if(S.active)return renderSession();
+  const now=new Date();const lib=S.lib;
+  const dateStr=now.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}).toUpperCase()+' · '+now.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+  let choices='';
+  if(!lib&&!S.libErr)choices=`<div class="choices">${[0,1,2].map(()=>'<div class="choice skel" aria-hidden="true"><span class="code" style="background:var(--panel-2)"></span><span class="body"><span class="name">Loading your library…</span><span class="meta">Reading the practice sheet</span></span></div>').join('')}</div>`;
+  else if(lib){const {picks,remaining}=pickThree(lib);
+    if(!picks.length)choices=`<div class="card"><p style="margin:0">Nothing is active in your library yet. Set an Activity’s Status to Active in the sheet to put it in rotation.</p><p style="margin:8px 0 0"><a href="${SHEET_URL}" target="_blank" rel="noopener">Open the library sheet ↗</a></p></div>`;
+    else choices=`<div class="choices">${picks.map((p,i)=>choiceHtml(p,i)).join('')}</div>
+      <div class="row" style="justify-content:space-between"><button class="link" data-act="bypass">Something else →</button>${remaining>3?'<button class="link" data-act="shuffle">Show three others</button>':''}</div>`;
+    S._picks=picks;}
+  const wk=weekCount(),target=lib?lib.weekly:4;
+  return `<div class="wrap">
+    <header class="top"><span class="label">${esc(dateStr)}</span><span class="label">${S.sessions.length} sessions logged</span></header>
+    ${libBanner()}${dbBanner()}${(()=>{if(!lib)return '';const w=checkLibrary(lib).filter(i=>i.level==='warn').length;
+      return w?`<div class="banner" role="status"><span class="msg"><span class="pill warn">SHEET CHECK</span> ${w} ${w===1?'problem':'problems'} in your library sheet.</span><button class="btn" data-act="review-issues">Review</button></div>`:''})()}
+    <h1>Pick one.<br><span class="sub">30 minutes, starting now.</span></h1>
+    <div class="stats">
+      <div class="stat"><span class="label">Streak</span><span class="v">${streak()} ${streak()===1?'day':'days'}</span></div>
+      <div class="stat"><span class="label">This week · ${wk} / ${target}</span><div class="segs">${Array.from({length:Math.max(target,wk)},(_,i)=>`<span class="${i<wk?'on':''}"></span>`).join('')}</div></div>
+    </div>
+    ${choices}
+    ${metersHtml(lib)}
+  </div>`;
+}
+function choiceHtml(p,i){
+  const a=p.a;const meta=a.notes||(a.focus?a.focus:'')||(a.thread?'Thread: '+a.thread:'');
+  const lastS=sessionsFor(a)[0];const side=a.pinned?'PINNED':p.last==null?(a.added&&Date.now()-a.added<10*DAY?'NEW':'NEVER'):fmtAgo(p.last).toUpperCase();
+  const lvl=level(sessionsFor(a).reduce((s,x)=>s+(x.minutes||0),0)).lv;
+  return `<button class="choice" data-act="pick" data-i="${i}"><span class="code" style="background:${col(a.cat)}">${esc(a.cat)}</span><span class="body"><span class="name">${esc(a.name)}</span><span class="meta">${esc(lastS&&lastS.note?'Last note: '+lastS.note:meta||(S.lib.cats[a.cat]||{}).name)}</span></span><span class="side">LV ${lvl}<br>${esc(side)}</span></button>`;
+}
+function metersHtml(lib){
+  const xp30=xpByCat(Date.now()-30*DAY),xpAll=xpByCat();const max=Math.max(60,...Object.values(xp30));
+  const cats=CAT_ORDER.filter(c=>!lib||lib.cats[c]);
+  return `<div style="display:flex;flex-direction:column;gap:10px"><span class="label">Levels · bar = last 30 days</span>
+  <div class="meters" style="grid-template-columns:repeat(${cats.length},minmax(0,1fr))">${cats.map(c=>{const v=xp30[c]||0;const h=Math.round(v/max*100);
+    return `<div class="meter" title="${esc((lib&&lib.cats[c]?lib.cats[c].name:FALLBACK_NAMES[c]))}: ${v} min in 30 days"><div class="bar"><i style="height:${h}%;background:${col(c)}"></i></div><span class="k">${c}</span><span class="lv">LV${level(xpAll[c]||0).lv}</span></div>`}).join('')}</div></div>`;
+}
+
+function renderSession(){
+  const a=S.active;const ms=elapsedMs(a);const m=Math.floor(ms/60000),sec=Math.floor(ms/1000)%60;
+  const pct=Math.min(100,ms/(a.targetMin*60000)*100);const catName=(S.lib&&S.lib.cats[a.category]||{}).name||FALLBACK_NAMES[a.category]||'';
+  return `<div class="wrap">
+    <header class="top"><span class="label">Session in progress</span><span class="pill" style="background:${col(a.category)};color:#141518">${esc(a.category)} · ${esc(catName.toUpperCase())}</span></header>
+    <div style="display:flex;flex-direction:column;gap:6px"><h1 style="font-size:28px">${esc(a.activityName)}</h1>
+      ${a.link?`<a href="${esc(a.link)}" target="_blank" rel="noopener" style="font-size:14px">Open reference ↗</a>`:''}
+      ${a.notes?`<span class="note">${esc(a.notes)}</span>`:''}</div>
+    <div class="card" style="display:flex;flex-direction:column;gap:14px">
+      <div class="row" style="justify-content:space-between;align-items:baseline"><span class="timer" id="timer">${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}</span><span class="label">${a.pausedAt?'Paused':'of '+a.targetMin+':00'}</span></div>
+      <div class="prog"><i id="tprog" style="width:${pct}%"></i></div>
+      <div class="stats"><button class="btn" data-act="pause">${a.pausedAt?'Resume':'Pause'}</button><button class="btn" data-act="plus">+15 min</button></div>
+    </div>
+    ${metroHtml()}
+    <label class="f"><span class="label">Scratch notes</span><textarea id="scratch" placeholder="Anything worth remembering for the log">${esc(a.scratch||'')}</textarea></label>
+    <button class="btn primary big${ms>=30*60000?' done':''}" data-act="finish" id="finish-btn">Finish session</button>
+    <div class="row" style="justify-content:space-between"><button class="link" data-act="discard-ask">Discard session</button></div>
+    <div id="discard-confirm" hidden class="banner"><span class="msg">Discard this session? Nothing will be logged.</span><button class="btn" data-act="discard">Discard</button></div>
+  </div>`;
+}
+
+/* ---------- Metronome ---------- */
+const M={bpm:100,pattern:['a','n','n','n'],playing:false,ctx:null,next:0,beat:0,cur:-1,timer:null,queue:[],wake:null,key:null,loadedKey:null,saveT:null,usedFor:null};
+(()=>{const d=lsGet('pc.metro');if(d&&d.bpm){M.bpm=d.bpm;if(Array.isArray(d.pattern)&&d.pattern.length)M.pattern=d.pattern}})();
+const clampBpm=v=>Math.max(20,Math.min(300,Math.round(v)||M.bpm));
+function metroKey(){const a=S.active;return a?'n_'+a.activityName:null}
+function beatsHtml(){return M.pattern.map((s,i)=>`<button type="button" class="beat ${s}${i===M.cur&&M.playing?' now':''}" data-m="cycle" data-i="${i}" aria-label="Beat ${i+1}: ${s==='a'?'accent':s==='n'?'normal':'silent'}"><i></i><span>${i+1}</span></button>`).join('')}
+function metroHtml(){
+  return `<div class="card metro" id="metro">
+    <div class="mhead"><span class="label">Metronome</span><button class="btn ${M.playing?'':'primary'}" data-m="toggle" id="m-play" style="min-width:96px">${M.playing?'Stop':'Start'}</button></div>
+    <div class="bpmrow">
+      <button type="button" data-m="bpm" data-d="-5" aria-label="Down 5 BPM">−5</button><button type="button" data-m="bpm" data-d="-1" aria-label="Down 1 BPM">−1</button>
+      <div class="bpmbox"><input type="number" id="m-bpm" min="20" max="300" inputmode="numeric" value="${M.bpm}" aria-label="Beats per minute"><span>BPM</span></div>
+      <button type="button" data-m="bpm" data-d="1" aria-label="Up 1 BPM">+1</button><button type="button" data-m="bpm" data-d="5" aria-label="Up 5 BPM">+5</button>
+    </div>
+    <input type="range" id="m-slider" min="20" max="300" value="${M.bpm}" aria-label="Tempo slider">
+    <div class="mhead"><span class="note">Tap a beat: accent → normal → silent</span><div class="count"><button type="button" data-m="beats" data-d="-1" aria-label="Fewer beats">−</button><b id="m-count">${M.pattern.length}</b><button type="button" data-m="beats" data-d="1" aria-label="More beats">+</button></div></div>
+    <div class="beats" id="m-beats">${beatsHtml()}</div>
+  </div>`;
+}
+function metroUI(){const i=$('#m-bpm');if(i&&document.activeElement!==i)i.value=M.bpm;const s=$('#m-slider');if(s)s.value=M.bpm;
+  const p=$('#m-play');if(p){p.textContent=M.playing?'Stop':'Start';p.classList.toggle('primary',!M.playing)}
+  const b=$('#m-beats');if(b)b.innerHTML=beatsHtml();const c=$('#m-count');if(c)c.textContent=M.pattern.length}
+function metroChanged(){const v={bpm:M.bpm,pattern:[...M.pattern]};lsSet('pc.metro',v);const k=metroKey();if(k){const all=lsGet('pc.metroBy')||{};all[k]=v;lsSet('pc.metroBy',all)}}
+function metroLoadFor(){const k=metroKey();if(!k||M.loadedKey===k||M.playing)return;M.loadedKey=k;const v=(lsGet('pc.metroBy')||{})[k];
+  if(v){if(v.bpm)M.bpm=clampBpm(v.bpm);if(Array.isArray(v.pattern)&&v.pattern.length)M.pattern=[...v.pattern]}metroUI()}
+function setBpm(v){M.bpm=clampBpm(v);metroUI();metroChanged()}
+function click(t,acc){const o=M.ctx.createOscillator(),g=M.ctx.createGain();o.type='triangle';o.frequency.value=acc?1760:1050;
+  g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(acc?0.95:0.55,t+0.002);g.gain.exponentialRampToValueAtTime(0.0001,t+0.055);o.connect(g);g.connect(M.ctx.destination);o.start(t);o.stop(t+0.07)}
+function schedule(){const ahead=document.visibilityState==='hidden'?1.6:0.12;
+  while(M.next<M.ctx.currentTime+ahead){const n=M.pattern.length;const i=M.beat%n;const st=M.pattern[i];if(st!=='m')click(M.next,st==='a');M.queue.push({t:M.next,b:i});M.next+=60/M.bpm;M.beat=(i+1)%n}}
+function frame(){if(!M.playing)return;const now=M.ctx.currentTime;let changed=false;while(M.queue.length&&M.queue[0].t<=now){M.cur=M.queue.shift().b;changed=true}
+  if(changed)document.querySelectorAll('#m-beats .beat').forEach((el,i)=>el.classList.toggle('now',i===M.cur));requestAnimationFrame(frame)}
+async function wakeOn(){try{if(navigator.wakeLock&&!M.wake){M.wake=await navigator.wakeLock.request('screen');M.wake.addEventListener('release',()=>{M.wake=null})}}catch(e){M.wake=null}}
+function metroStart(){const AC=window.AudioContext||window.webkitAudioContext;if(!AC){toast('Audio isn’t available in this browser');return}
+  if(!M.ctx)M.ctx=new AC();M.ctx.resume();M.playing=true;M.beat=0;M.queue=[];M.next=M.ctx.currentTime+0.08;schedule();M.timer=setInterval(schedule,25);
+  M.usedFor=S.active?S.active.startedAt:null;wakeOn();requestAnimationFrame(frame);metroUI()}
+function metroStop(){if(!M.playing)return;M.playing=false;clearInterval(M.timer);M.queue=[];M.cur=-1;if(M.wake){M.wake.release().catch(()=>{});M.wake=null}metroUI()}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&M.playing){wakeOn();if(M.ctx)M.ctx.resume()}});
+let holdT=null,holdI=null;
+function holdStop(){clearTimeout(holdT);clearInterval(holdI);holdT=holdI=null}
+document.addEventListener('pointerdown',ev=>{const b=ev.target.closest('[data-m="bpm"]');if(!b)return;ev.preventDefault();const d=+b.dataset.d;setBpm(M.bpm+d);
+  holdStop();try{b.setPointerCapture(ev.pointerId)}catch(e){}
+  holdT=setTimeout(()=>{const t0=Date.now();holdI=setInterval(()=>{if(!b.isConnected||Date.now()-t0>3000){holdStop();return}setBpm(M.bpm+d)},90)},450)});
+['pointerup','pointercancel','lostpointercapture'].forEach(t=>document.addEventListener(t,holdStop,true));
+window.addEventListener('blur',holdStop);document.addEventListener('visibilitychange',holdStop);
+document.addEventListener('contextmenu',ev=>{if(ev.target.closest('[data-m]')){ev.preventDefault();holdStop()}});
+document.addEventListener('click',ev=>{const b=ev.target.closest('[data-m]');if(!b)return;const m=b.dataset.m;
+  if(m==='bpm'){if(ev.detail===0)setBpm(M.bpm+(+b.dataset.d));return}
+  if(m==='toggle'){M.playing?metroStop():metroStart()}
+  else if(m==='cycle'){const i=+b.dataset.i;M.pattern[i]=M.pattern[i]==='a'?'n':M.pattern[i]==='n'?'m':'a';metroUI();metroChanged()}
+  else if(m==='beats'){const n=M.pattern.length+(+b.dataset.d);if(n<1||n>16)return;if(n>M.pattern.length)M.pattern.push('n');else M.pattern.pop();metroUI();metroChanged()}
+});
+document.addEventListener('input',ev=>{if(ev.target.id==='m-slider')setBpm(+ev.target.value)});
+document.addEventListener('change',ev=>{if(ev.target.id==='m-bpm')setBpm(+ev.target.value)});
+
+function renderLog(){
+  const L=S.log;const lib=S.lib;const cats=CAT_ORDER.filter(c=>!lib||lib.cats[c]);
+  const xp=Math.max(0,Math.round(L.minutes||0));
+  return `<div class="wrap">
+    <header class="top"><div style="display:flex;flex-direction:column;gap:4px"><span class="label">Session complete</span><h1 style="font-size:26px">${esc(L.activityName)}</h1></div><span class="mono" style="font-size:22px;font-weight:600;color:var(--accent)">+${xp} XP</span></header>
+    <label class="f"><span class="label">Minutes</span><input type="number" id="log-min" min="1" step="1" value="${xp}" inputmode="numeric"><span class="note">Under 30 minutes is fine. It’s logged as a short session and still earns XP.</span></label>
+    <div class="f" style="display:flex;flex-direction:column;gap:8px"><span class="label">What it turned out to be · all that apply</span>
+      <div class="chips" role="group" aria-label="Categories">${(()=>{const home=S.active&&S.active.category;const ord=home&&cats.includes(home)?[home,...cats.filter(x=>x!==home)]:cats;return ord.map(c=>{const on=logCats(L).includes(c);const planned=c===home;return `<button class="chip" data-act="logcat" data-c="${c}" aria-pressed="${on}" style="${on?'background:'+col(c)+';':''}${planned?'border:2px solid '+col(c)+';':''}">${c} · ${esc((lib&&lib.cats[c]||{}).name||FALLBACK_NAMES[c])}${planned?' <span class="mono" style="font-size:10px;letter-spacing:.08em;opacity:.8">· PLANNED</span>':''}</button>`}).join('')})()}</div>
+      ${logCats(L).length>1?`<span class="note">${Math.round(L.minutes||0)} minutes split evenly: about ${Math.round((L.minutes||0)/logCats(L).length)} XP each.</span>`:''}</div>
+    <label class="f"><span class="label">Note for next time</span><textarea id="log-note" placeholder="Where you left off, what to try next">${esc(L.note||'')}</textarea></label>
+    <div class="row" style="justify-content:space-between"><span class="label">How did it go?</span><div class="rating" role="group" aria-label="Rating">${[1,2,3,4,5].map(n=>`<button data-act="rate" data-n="${n}" aria-pressed="${L.rating===n}">${n}</button>`).join('')}</div></div>
+    <details ${L.added.length?'open':''}><summary class="label">Add activities to the library (${L.added.length} added)</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+        ${L.added.length?`<div class="list">${L.added.map(n=>`<div class="li"><span class="body"><span class="t">${esc(n)}</span><span class="s">In the sheet’s inbox</span></span></div>`).join('')}</div>`:''}
+        ${addFormHtml('log')}
+      </div></details>
+    ${L.err?`<p class="err">${esc(L.err)}</p>`:''}
+    <button class="btn primary big" data-act="save" ${L.saving?'disabled':''}>${L.saving?'Saving…':'Save session'}</button>
+    <button class="link" data-act="back-to-session">Back to the timer</button>
+  </div>`;
+}
+function addFormHtml(p){
+  return `<form class="addform" data-p="${p}" style="display:flex;flex-direction:column;gap:10px">
+    <label class="f"><span class="label">Activity name</span><input type="text" id="${p}-add-name" required placeholder="e.g. Buster B. Jones: travis picking pattern 2"></label>
+    <div class="grid2" style="gap:10px"><label class="f"><span class="label">Link (optional)</span><input type="url" id="${p}-add-link" placeholder="https://"></label>
+    <label class="f"><span class="label">Category (optional)</span><select id="${p}-add-cat"><option value="">Decide later</option>${CAT_ORDER.map(c=>`<option value="${c}">${c} · ${esc((S.lib&&S.lib.cats[c]||{}).name||FALLBACK_NAMES[c])}</option>`).join('')}</select></label></div>
+    <label class="f"><span class="label">Note (optional)</span><input type="text" id="${p}-add-note"></label>
+    <div class="row"><button class="btn" type="submit">Add to inbox</button><span class="note" id="${p}-add-msg" role="status"></span></div>
+  </form>`;
+}
+
+function renderProgress(){
+  const lib=S.lib;const xpAll=xpByCat();const cats=CAT_ORDER.filter(c=>!lib||lib.cats[c]);
+  const totalMin=S.sessions.reduce((s,x)=>s+(x.minutes||0),0);
+  const winDays=lib?lib.windowDays:14;const since=Date.now()-winDays*DAY;const win=S.sessions.filter(s=>s.start>=since);
+  const catRows=cats.map(c=>{const {lv,frac}=level(xpAll[c]||0);const n=win.reduce((t,s)=>t+catWeight(s,c),0);const share=win.length?n/win.length:0;const tgt=lib?lib.cats[c].target:1/cats.length;
+    const flag=win.length>=4?(share<tgt*.5?'<span class="pill warn">UNDER</span>':share>tgt*1.8?'<span class="pill">HEAVY</span>':''):'';
+    return `<div class="li"><span class="code sm" style="background:${col(c)}">${c}</span><span class="body"><span class="t">${esc((lib&&lib.cats[c]||{}).name||FALLBACK_NAMES[c])} <span class="mono" style="color:var(--muted);font-weight:400;font-size:12px">LV ${lv}</span></span><span class="prog" style="height:6px"><i style="width:${Math.round(frac*100)}%;height:6px;background:${col(c)}"></i></span></span><span class="r">${Math.round(share*100)}% / ${Math.round(tgt*100)}%<br>${Math.round((xpAll[c]||0)/60*10)/10} h</span>${flag}</div>`}).join('');
+  const threads=lib?Object.values(lib.threads):[];
+  const thRows=threads.map(t=>{const ss=S.sessions.filter(s=>s.thread===t.name);const last=ss.length?Math.max(...ss.map(s=>s.start)):null;
+    return `<div class="li"><span class="body"><span class="t">${esc(t.name)}</span><span class="s">${esc([t.type,t.stage].filter(Boolean).join(' · '))}</span></span><span class="r">${last==null?'no sessions':fmtAgo(last)}<br>${ss.length} sessions</span>${/^active$/i.test(t.status)?'':`<span class="pill">${esc(String(t.status).toUpperCase()||'—')}</span>`}</div>`}).join('');
+  const recent=S.sessions.slice(0,12).map(s=>`<div class="li"><span class="code sm" style="background:${col(s.category)}">${esc(s.category)}</span>${catsOf(s).length>1?`<span class="mono note" style="flex-shrink:0">+${esc(catsOf(s).filter(c=>c!==s.category).join(' '))}</span>`:''}<span class="body"><span class="t">${esc(s.activityName)}</span>${s.note?`<span class="s">${esc(s.note)}</span>`:''}</span><span class="r">${fmtDate(s.start)}<br>${s.minutes} min${s.metronome?' · '+s.metronome.bpm+' bpm':''}${s.rating?' · '+s.rating+'/5':''}</span></div>`).join('');
+  return `<div class="wrap wide">
+    <header class="top"><h1>Progress</h1><span class="label">${S.sessions.length} sessions · ${Math.round(totalMin/60*10)/10} hours</span></header>
+    ${libBanner()}${dbBanner()}
+    <div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="row" style="justify-content:space-between"><h2>Last 16 weeks</h2><span class="label">Color = main category that day</span></div><div class="heat">${heatmapSvg()}</div></div>
+    <div class="grid2">
+      <div class="card"><div class="row" style="justify-content:space-between;margin-bottom:6px"><h2>Categories</h2><span class="label">Share last ${winDays} days / target</span></div><div class="list">${catRows}</div></div>
+      <div class="card"><h2 style="margin-bottom:6px">Threads</h2><div class="list">${thRows||'<p class="note">Threads you add in the sheet appear here with how long each has been idle.</p>'}</div></div>
+    </div>
+    <div class="card"><h2 style="margin-bottom:6px">Recent sessions</h2><div class="list">${recent||'<p class="note">Your logged sessions will appear here. Start one from Today.</p>'}</div></div>
+  </div>`;
+}
+function heatmapSvg(){
+  const weeks=16,cell=16,gap=3;const today=startOfDay(Date.now());const dow=(new Date().getDay()+6)%7;const start=today-(dow+7*(weeks-1))*DAY;
+  const byDay={};for(const s of S.sessions){const d=startOfDay(s.start);if(d<start)continue;const cs=catsOf(s);const o=byDay[d]=byDay[d]||{};for(const c of cs)o[c]=(o[c]||0)+(s.minutes||0)/cs.length}
+  const W=weeks*(cell+gap)+28,H=7*(cell+gap)+20;let out=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Practice calendar for the last ${weeks} weeks">`;
+  ['M','','W','','F','','S'].forEach((l,i)=>{if(l)out+=`<text x="0" y="${20+i*(cell+gap)+12}" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono, monospace">${l}</text>`});
+  for(let w=0;w<weeks;w++){const ws=start+w*7*DAY;const d0=new Date(ws);if(d0.getDate()<=7)out+=`<text x="${28+w*(cell+gap)}" y="10" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono, monospace">${d0.toLocaleDateString(undefined,{month:'short'})}</text>`;
+    for(let d=0;d<7;d++){const t=ws+d*DAY;if(t>today)continue;const e=byDay[t];let fill='var(--panel-2)',op=1,title=fmtDate(t)+': no session';
+      if(e){const [c,m]=Object.entries(e).sort((a,b)=>b[1]-a[1])[0];const tot=Math.round(Object.values(e).reduce((a,b)=>a+b,0));fill=col(c);op=Math.min(1,.45+tot/180);title=fmtDate(t)+': '+tot+' min, mostly '+c}
+      out+=`<rect x="${28+w*(cell+gap)}" y="${20+d*(cell+gap)}" width="${cell}" height="${cell}" rx="3" fill="${fill}" fill-opacity="${op}"><title>${esc(title)}</title></rect>`}}
+  return out+'</svg>';
+}
+
+function renderMap(){
+  const lib=S.lib;
+  if(!lib)return `<div class="wrap wide"><header class="top"><h1>Your map</h1></header>${libBanner()}<p class="note">The map appears once your library sheet has loaded.</p></div>`;
+  const cats=CAT_ORDER.filter(c=>lib.cats[c]);const W=640,H=600,cx=W/2,cy=H/2;
+  const groups=cats.map(c=>{const names=new Set(lib.focus.filter(f=>f.cat===c).map(f=>f.name));for(const a of lib.activities)if(a.cat===c&&a.focus)names.add(a.focus);
+    return {c,focus:[...names]}});
+  const fx={};let maxXp=60;
+  for(const s of S.sessions){const cs=catsOf(s);for(const c of cs){const f=focusFor(s,c);if(!f)continue;const k=c+'|'+f;const o=fx[k]=fx[k]||{xp:0,last:0};o.xp+=(s.minutes||0)/cs.length;o.last=Math.max(o.last,s.start);maxXp=Math.max(maxXp,o.xp)}}
+  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Skill map: categories branch from the centre, focus areas sit at the ends. Size shows practice time, brightness shows how recently each was practiced.">`;
+  let lines='',nodes='',labels='';
+  groups.forEach((g,i)=>{const ang=-Math.PI/2+i*2*Math.PI/groups.length;const r1=110;const x1=cx+r1*Math.cos(ang),y1=cy+r1*Math.sin(ang);
+    lines+=`<line x1="${cx}" y1="${cy}" x2="${x1}" y2="${y1}" stroke="var(--line)" stroke-width="1.4"/>`;
+    const n=g.focus.length;const spread=Math.min(.62,(2*Math.PI/groups.length)*.8);
+    g.focus.forEach((f,j)=>{const a2=ang+(n>1?(-spread/2+spread*j/(n-1)):0);const r2=n>3&&j%2?232:205;const x2=cx+r2*Math.cos(a2),y2=cy+r2*Math.sin(a2);
+      const o=fx[g.c+'|'+f];const rad=5+11*Math.sqrt((o?o.xp:0)/maxXp);const d=o?daysAgo(o.last):999;const op=o?Math.max(.22,1-d/30):.18;
+      lines+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--line)" stroke-width="1"/>`;
+      nodes+=`<circle cx="${x2}" cy="${y2}" r="${rad}" fill="${col(g.c)}" fill-opacity="${op}"><title>${esc(f)}: ${o?Math.round(o.xp)+' min, last '+fmtAgo(o.last):'not practiced yet'}</title></circle>`;
+      const right=Math.cos(a2)>=0.15,left=Math.cos(a2)<=-0.15;const lx=x2+(right?rad+5:left?-(rad+5):0),ly=y2+(right||left?4:(Math.sin(a2)<0?-(rad+6):rad+14));
+      labels+=`<text x="${lx}" y="${ly}" font-size="11.5" fill="var(--muted)" text-anchor="${right?'start':left?'end':'middle'}" font-family="Inter Tight, sans-serif">${esc(f.length>22?f.slice(0,21)+'…':f)}</text>`});
+    nodes+=`<circle cx="${x1}" cy="${y1}" r="14" fill="${col(g.c)}"/><text x="${x1}" y="${y1+4.5}" font-size="12" font-weight="600" text-anchor="middle" fill="#141518" font-family="IBM Plex Mono, monospace">${g.c}</text>`;});
+  svg+=lines+`<circle cx="${cx}" cy="${cy}" r="5" fill="var(--fg)"/>`+nodes+labels+'</svg>';
+  return `<div class="wrap wide"><header class="top"><h1>Your map</h1><span class="label">Size = practice time · brightness = how recently</span></header>${libBanner()}<div class="card mapbox">${svg}</div></div>`;
+}
+
+function renderLibrary(){
+  const lib=S.lib;
+  if(!lib)return `<div class="wrap wide"><header class="top"><h1>Library</h1></header>${libBanner()}<p class="note">Loading your library sheet…</p></div>`;
+  const q=S.libFilter.toLowerCase();const cat=S.libCat;
+  const items=lib.activities.filter(a=>(!cat||a.cat===cat)&&(!q||(a.name+' '+a.focus+' '+a.notes).toLowerCase().includes(q)));
+  const rows=items.map(a=>{const inbox=!a.status;const el=eligible(a,lib);const last=lastDone(a);
+    const pill=inbox?'<span class="pill warn">INBOX</span>':a.missing?'<span class="pill warn">'+esc(a.missing.toUpperCase())+'</span>':!el?`<span class="pill">${esc((a.status||'').toUpperCase()||'OFF')}</span>`:a.pinned?'<span class="pill ok">PINNED</span>':'';
+    return `<button class="libitem" data-act="start-lib" data-row="${a.row}"><span class="code sm" style="background:${a.cat?col(a.cat):'var(--panel-2)'}">${esc(a.cat||'?')}</span><span class="body" style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font-weight:600">${esc(a.name)}</span><span class="note" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc([a.focus,a.thread&&'Thread: '+a.thread].filter(Boolean).join(' · ')||a.notes)}</span></span><span class="mono note" style="text-align:right;flex-shrink:0">${fmtAgo(last)}</span>${pill}</button>`}).join('');
+  return `<div class="wrap wide">
+    <header class="top"><h1>Library</h1><a href="${SHEET_URL}" target="_blank" rel="noopener" style="font-size:14px">Open the sheet ↗</a></header>
+    ${libBanner()}
+    <p class="note" style="margin:0">Tap any activity to start a session with it. Synced ${S.libSyncedAt?fmtAgo(S.libSyncedAt)+' at '+new Date(S.libSyncedAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}):'—'} · <button class="link" data-act="reload-lib" style="min-height:0;padding:0">Refresh</button></p>
+    ${(()=>{const iss=checkLibrary(lib);if(!iss.length)return '<p class="note" style="margin:0"><span class="pill ok">SHEET CHECK</span> No problems found in the library sheet.</p>';
+      return `<div class="card" id="issues" style="display:flex;flex-direction:column;gap:6px"><div class="row" style="justify-content:space-between"><h2>Sheet check</h2><a href="${SHEET_URL}" target="_blank" rel="noopener" style="font-size:14px">Fix in the sheet ↗</a></div><p class="note" style="margin:0">These clear on their own once the sheet is fixed and the page refreshes.</p>${issuesHtml(iss)}</div>`})()}
+    <div class="grid2" style="align-items:start">
+      <div class="card" style="display:flex;flex-direction:column;gap:10px">
+        <label class="f"><span class="label">Search</span><input type="search" id="lib-q" value="${esc(S.libFilter)}" placeholder="Name, focus or note"></label>
+        <div class="chips" role="group" aria-label="Filter by category"><button class="chip" data-act="libcat" data-c="" aria-pressed="${!cat}" style="${!cat?'background:var(--fg)':''}">All</button>${CAT_ORDER.filter(c=>lib.cats[c]).map(c=>`<button class="chip" data-act="libcat" data-c="${c}" aria-pressed="${cat===c}" style="${cat===c?'background:'+col(c):''}">${c}</button>`).join('')}</div>
+        <div class="list" id="lib-list">${rows||'<p class="note">No activities match.</p>'}</div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:10px"><h2>Quick add</h2><p class="note" style="margin:0">New rows go to the sheet with a blank Status, so they wait in the inbox until you set them Active.</p>${addFormHtml('lib')}</div>
+    </div>
+  </div>`;
+}
+
+function render(){
+  renderTabs();
+  const ae=document.activeElement;const keep=ae&&ae.id?{id:ae.id,s:ae.selectionStart,e:ae.selectionEnd}:null;
+  let html=S.tab==='today'?renderToday():S.tab==='progress'?renderProgress():S.tab==='map'?renderMap():renderLibrary();
+  if(S.tab!=='today'&&S.active)html=`<div class="wrap wide" style="padding-top:16px"><div class="banner"><span class="msg">Session in progress: ${esc(S.active.activityName)}</span><button class="btn primary" data-tab-go="today">Return</button></div></div>`+html;
+  $('#app').innerHTML=html;
+  if(S.tab==='today'&&S.active&&!S.log)metroLoadFor();
+  if(keep){const el=document.getElementById(keep.id);if(el){el.focus();try{el.setSelectionRange(keep.s,keep.e)}catch(e){}}}
+}
+
+/* ---------- Events ---------- */
+document.addEventListener('click',async ev=>{
+  const tb=ev.target.closest('[data-tab],[data-tab-go]');if(tb){S.tab=tb.dataset.tab||tb.dataset.tabGo;render();window.scrollTo(0,0);return}
+  const b=ev.target.closest('[data-act]');if(!b)return;const act=b.dataset.act;
+  if(act==='pick'){const p=S._picks[+b.dataset.i];if(p)startSession(p.a,false,S._picks.map(x=>keyOf(x.a)))}
+  else if(act==='shuffle'){(S._picks||[]).forEach(p=>S.skip.add(keyOf(p.a)));if(pickThree(S.lib).picks.length===0)S.skip.clear();render()}
+  else if(act==='bypass'){S.tab='library';render();window.scrollTo(0,0)}
+  else if(act==='review-issues'){S.tab='library';render();const el=$('#issues');if(el)el.scrollIntoView();else window.scrollTo(0,0)}
+  else if(act==='start-lib'){const a=S.lib.activities.find(x=>x.row===+b.dataset.row);if(!a)return;if(!a.cat){toast('Give this activity a category in the sheet first');return}startSession(a,true,(S._picks||[]).map(x=>keyOf(x.a)))}
+  else if(act==='pause'){const a=S.active;if(a.pausedAt)patchActive({pausedMs:(a.pausedMs||0)+(Date.now()-a.pausedAt),pausedAt:null});else patchActive({pausedAt:Date.now()})}
+  else if(act==='plus')patchActive({targetMin:(S.active.targetMin||30)+15})
+  else if(act==='discard-ask'){const el=$('#discard-confirm');if(el)el.hidden=false}
+  else if(act==='discard'){clearDrafts();metroStop();M.loadedKey=null;S.active=null;S.log=null;saveActive();render()}
+  else if(act==='finish'){const a=S.active;const sc=$('#scratch');if(sc){a.scratch=sc.value;saveActive()}
+    S.log={activityName:a.activityName,category:a.category,categories:[a.category],minutes:Math.max(1,Math.round(elapsedMs(a)/60000)),note:a.scratch||'',rating:null,added:[],saving:false,err:''};persistLog();render();window.scrollTo(0,0)}
+  else if(act==='back-to-session'){S.log=null;try{localStorage.removeItem('pc.log')}catch(e){}render()}
+  else if(act==='logcat'){const c=b.dataset.c;const cs=[...logCats(S.log)];const i=cs.indexOf(c);
+    if(i>=0){if(cs.length===1){toast('Keep at least one category');return}cs.splice(i,1)}else cs.push(c);
+    S.log.categories=CAT_ORDER.filter(x=>cs.includes(x));S.log.category=S.log.categories[0];syncLogFields();persistLog();render()}
+  else if(act==='rate'){S.log.rating=+b.dataset.n;syncLogFields();persistLog();render()}
+  else if(act==='save')saveSession();
+  else if(act==='reload-lib'||act==='sync'){sync(true)}
+  else if(act==='libcat'){S.libCat=b.dataset.c;render()}
+});
+document.addEventListener('input',ev=>{
+  if(ev.target.id==='lib-q'){S.libFilter=ev.target.value;render()}
+  if(ev.target.id==='log-min'&&S.log){S.log.minutes=parseFloat(ev.target.value)||0;S.log.short=false;const x=document.querySelector('header.top .mono');if(x)x.textContent='+'+Math.max(0,Math.round(S.log.minutes))+' XP'}
+  if(ev.target.id==='log-note'&&S.log)S.log.note=ev.target.value;
+  if((ev.target.id==='log-min'||ev.target.id==='log-note')&&S.log)persistLog();
+  if(ev.target.id==='scratch'&&S.active){S.active.scratch=ev.target.value;saveActive()}
+});
+function persistLog(){if(S.log&&S.active)lsSet('pc.log',{startedAt:S.active.startedAt,log:S.log})}
+function clearDrafts(){try{localStorage.removeItem('pc.log')}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')persistLog();
+  else if(hasToken()&&!S.syncing&&(!S.libSyncedAt||Date.now()-S.libSyncedAt>5*60000))sync(false)});
+document.addEventListener('submit',async ev=>{
+  const f=ev.target.closest('.addform');if(!f)return;ev.preventDefault();const p=f.dataset.p;
+  const name=$('#'+p+'-add-name').value.trim();const msg=$('#'+p+'-add-msg');if(!name)return;
+  if(!S.lib){msg.textContent='Load your library first.';return}
+  msg.textContent='Adding…';
+  try{
+    await ensureAuth();
+    const a=await getValues('Activities!A1:A1000');let row=null;for(let i=1;i<a.length;i++){if(!String((a[i]||[])[0]||'').trim()){row=i+1;break}}if(row==null)row=a.length+1;
+    const I=S.lib.cols;const vals=[];const put=(k,v)=>{if(I[k]>=0)vals[I[k]]=v};
+    put('name',name);put('link',$('#'+p+'-add-link').value.trim());put('cat',$('#'+p+'-add-cat').value);put('notes',$('#'+p+'-add-note').value.trim());
+    const d=new Date();put('added',(d.getMonth()+1)+'/'+d.getDate()+'/'+d.getFullYear());
+    const last=vals.length-1;for(let i=0;i<=last;i++)if(vals[i]===undefined)vals[i]=null;
+    await updateValues('Activities!A'+row+':'+colLetter(last)+row,[vals]);
+    if(p==='log'&&S.log){syncLogFields();S.log.added.push(name)}
+    toast('Added to the inbox');await sync(false);
+  }catch(e){msg.textContent=e&&(e.code==='auth_cancelled'||e.code==='auth')?'Connect Google to add to the sheet.':'Couldn’t add it ('+(e&&e.code||'error')+'). Try again.'}
+});
+function syncLogFields(){const m=$('#log-min'),n=$('#log-note');if(m)S.log.minutes=parseFloat(m.value)||0;if(n)S.log.note=n.value}
+async function saveSession(){
+  syncLogFields();const L=S.log,a=S.active;if(!a)return;
+  if(!((L.minutes||0)>=1)){L.err='Enter how many minutes you practiced.';render();return}
+  const authP=hasToken()?Promise.resolve():signIn().catch(()=>null);
+  const cats=logCats(L);const primary=cats.includes(a.category)?a.category:cats[0];
+  const doc={id:'s-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),activityId:a.activityId||null,activityName:a.activityName,category:primary,categories:cats,
+    focus:cats.includes(a.category)?a.focus:'',thread:a.thread||'',start:a.startedAt,minutes:Math.round(L.minutes),short:L.minutes<30,note:L.note.trim(),rating:L.rating||null,
+    bypass:a.bypass,offered:a.offered||[],addedActivities:L.added,metronome:M.usedFor===a.startedAt?{bpm:M.bpm,pattern:M.pattern.join('')}:null};
+  const q=queue();q.push(doc);lsSet('pc.queue',q);
+  clearDrafts();metroStop();M.loadedKey=null;S.active=null;S.log=null;saveActive();S.skip.clear();mergeSessions();render();window.scrollTo(0,0);
+  await authP;
+  if(hasToken()){
+    try{if(S.sheetLoaded){await flushQueue();mergeSessions()}else await sync(false);
+      toast(queue().length?'Saved on this device. It will reach your sheet on the next sync.':'Saved to your sheet · +'+doc.minutes+' XP')}
+    catch(e){toast('Saved on this device. It will reach your sheet on the next sync.')}
+  } else toast('Saved on this device. Tap Connect to send it to your sheet.');
+  render();
+}
+setInterval(()=>{if(S.tab!=='today'||!S.active||S.log)return;const el=$('#timer');if(!el)return;const ms=elapsedMs(S.active);el.textContent=String(Math.floor(ms/60000)).padStart(2,'0')+':'+String(Math.floor(ms/1000)%60).padStart(2,'0');const pr=$('#tprog');if(pr)pr.style.width=Math.min(100,ms/(S.active.targetMin*60000)*100)+'%';
+  const fb=$('#finish-btn');if(fb)fb.classList.toggle('done',ms>=30*60000)},1000);
+
+/* ---------- Boot ---------- */
+const cached=lsGet('pc.lib');if(cached&&cached.raw){try{S.lib=parseLibrary(...cached.raw);S.libSyncedAt=cached.at}catch(e){}}
+S.sheetSessions=lsGet('pc.sessions')||[];
+S.active=lsGet('pc.active');
+if(S.active){const sl=lsGet('pc.log');if(sl&&sl.startedAt===S.active.startedAt&&sl.log)S.log=sl.log;metroLoadFor()}
+mergeSessions();render();
+if(hasToken())sync(false);else{S.authNeeded=true;render()}
+if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+})();
+</script>
+</body>
+</html>
