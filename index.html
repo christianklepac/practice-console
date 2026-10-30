@@ -469,7 +469,7 @@ function renderSession(){
     <div class="card" style="display:flex;flex-direction:column;gap:14px">
       <div class="row" style="justify-content:space-between;align-items:baseline"><span class="timer" id="timer">${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}</span><span class="label">${a.pausedAt?'Paused':'of '+a.targetMin+':00'}</span></div>
       <div class="prog"><i id="tprog" style="width:${pct}%"></i></div>
-      <div class="stats"><button class="btn" data-act="pause">${a.pausedAt?'Resume':'Pause'}</button><button class="btn" data-act="plus">+15 min</button></div>
+      <button class="btn" data-act="pause">${a.pausedAt?'Resume':'Pause'}</button>
     </div>
     ${metroHtml()}
     <label class="f"><span class="label">Scratch notes</span><textarea id="scratch" placeholder="Anything worth remembering for the log">${esc(a.scratch||'')}</textarea></label>
