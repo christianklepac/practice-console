@@ -162,7 +162,9 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const col=c=>`var(--c${CAT_ORDER.includes(c)?c:'G'})`;
 const startOfDay=t=>{const d=new Date(t);d.setHours(0,0,0,0);return d.getTime()};
-const daysAgo=t=>Math.floor((startOfDay(Date.now())-startOfDay(t))/DAY);
+const daysAgo=t=>Math.round((startOfDay(Date.now())-startOfDay(t))/DAY);
+const addDays=(t,n)=>{const d=new Date(t);d.setDate(d.getDate()+n);return d.getTime()};
+const weekStart=t=>{const d=new Date(t);d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d.getTime()};
 const fmtAgo=t=>{if(t==null)return 'never';const d=daysAgo(t);return d===0?'today':d===1?'yesterday':d+' days ago'};
 const fmtDate=t=>new Date(t).toLocaleDateString(undefined,{month:'short',day:'numeric'});
 function toast(m){const el=$('#toast');el.textContent=m;el.hidden=false;clearTimeout(S.toastT);S.toastT=setTimeout(()=>el.hidden=true,2600)}
@@ -176,25 +178,35 @@ const AUTH={token:null,exp:0};
 function hasToken(){return !!AUTH.token&&AUTH.exp>Date.now()+30000}
 function redirectUri(){return location.origin+location.pathname.replace(/index\.html$/,'')}
 // Full-page OAuth redirect (works inside installed apps, where sign-in pop-ups fail).
-function signIn(){
+// silent=true asks Google for a token without showing anything; it comes straight back
+// with either a token or an error, and on an error the app falls back to the Connect button.
+function signIn(silent){
   persistLog();saveActive();
-  const state=Math.random().toString(36).slice(2);try{sessionStorage.setItem('pc.oauthState',state)}catch(e){}
-  lsSet('pc.oauthState',state);
-  const q=new URLSearchParams({client_id:CLIENT_ID,redirect_uri:redirectUri(),response_type:'token',scope:SCOPE,include_granted_scopes:'true',state,prompt:lsGet('pc.consented')?'':'consent'});
-  if(!lsGet('pc.consented'))q.set('prompt','consent');else q.delete('prompt');
+  const state=Math.random().toString(36).slice(2);
+  lsSet('pc.oauthState',state);lsSet('pc.oauthSilent',!!silent);
+  const q=new URLSearchParams({client_id:CLIENT_ID,redirect_uri:redirectUri(),response_type:'token',scope:SCOPE,include_granted_scopes:'true',state});
+  if(silent)q.set('prompt','none');else if(!lsGet('pc.consented'))q.set('prompt','consent');
   location.assign('https://accounts.google.com/o/oauth2/v2/auth?'+q.toString());
   return new Promise(()=>{});
+}
+function trySilent(){
+  if(!lsGet('pc.consented')||lsGet('pc.silentOk')===false||S.libErr)return false;
+  if(navigator.onLine===false)return false;
+  const last=lsGet('pc.silentAt')||0;if(Date.now()-last<5*60000)return false;
+  lsSet('pc.silentAt',Date.now());signIn(true);return true;
 }
 function handleOAuthReturn(){
   const h=location.hash.startsWith('#')?location.hash.slice(1):'';if(!h||!/(access_token|error)=/.test(h))return;
   const p=new URLSearchParams(h);history.replaceState(null,'',location.pathname+location.search);
   const want=lsGet('pc.oauthState');lsSet('pc.oauthState',null);
-  if(p.get('error')){S.libErr={code:p.get('error')==='access_denied'?'auth_denied':'auth_failed',message:p.get('error')};return}
-  if(!want||p.get('state')!==want){S.libErr={code:'auth_failed',message:'sign-in state mismatch, try again'};return}
+  const silent=!!lsGet('pc.oauthSilent');lsSet('pc.oauthSilent',null);
+  if(p.get('error')){
+    if(silent){lsSet('pc.silentOk',false);return}
+    S.libErr={code:p.get('error')==='access_denied'?'auth_denied':'auth_failed',message:p.get('error')};return}
+  if(!want||p.get('state')!==want){if(!silent)S.libErr={code:'auth_failed',message:'sign-in state mismatch, try again'};return}
   AUTH.token=p.get('access_token');AUTH.exp=Date.now()+(Number(p.get('expires_in'))||3600)*1000;
-  lsSet('pc.tok',{token:AUTH.token,exp:AUTH.exp});lsSet('pc.consented',true);
+  lsSet('pc.tok',{token:AUTH.token,exp:AUTH.exp});lsSet('pc.consented',true);lsSet('pc.silentOk',true);
 }
-async function ensureAuth(){if(!hasToken())await signIn()}
 async function api(path,opts){
   if(!hasToken())throw {code:'auth'};
   let r;try{r=await fetch(API+path,{...(opts||{}),headers:{Authorization:'Bearer '+AUTH.token,'Content-Type':'application/json'}})}catch(e){throw {code:'offline'}}
@@ -223,15 +235,15 @@ function parseLibrary(act,foc,thr,set){
   if(firstEmpty==null)firstEmpty=act.length+1;
   const focus=[];for(let i=1;i<foc.length;i++){const r=foc[i]||[];if(r[0])focus.push({name:String(r[0]).trim(),cat:String(r[1]||'').trim().toUpperCase()})}
   const threads={};for(let i=1;i<thr.length;i++){const r=thr[i]||[];if(r[0])threads[String(r[0]).trim()]={name:String(r[0]).trim(),type:r[1]||'',stage:r[2]||'',status:r[3]||'',notes:r[4]||''}}
-  const cats={};let windowDays=14,weekly=4;
+  const cats={};let windowN=12,weekly=4;
   for(const r of set){const a=String((r||[])[0]||'').trim();
-    if(/^balance window/i.test(a)){const v=parseFloat(r[1]);if(v>0)windowDays=v;continue}
+    if(/^balance window/i.test(a)){const v=parseFloat(r[1]);if(v>0&&/session/i.test(a))windowN=Math.round(v);continue}
     if(/^weekly session target/i.test(a)){const v=parseFloat(r[1]);if(v>0)weekly=v;continue}
     if(/^(A|B|C|D1|D2|E|F|G|H)$/i.test(a)){const iv=parseFloat(r[2]),w=parseFloat(r[3]);cats[a.toUpperCase()]={code:a.toUpperCase(),name:r[1]||FALLBACK_NAMES[a.toUpperCase()]||a,interval:iv>0?iv:7,weight:isFinite(w)?w:1}}}
   for(const c of CAT_ORDER)if(!cats[c])cats[c]={code:c,name:FALLBACK_NAMES[c],interval:7,weight:1};
   const wsum=Object.values(cats).reduce((s,c)=>s+Math.max(0,c.weight),0)||1;
   for(const c of Object.values(cats))c.target=Math.max(0,c.weight)/wsum;
-  return {activities,focus,threads,cats,windowDays,weekly,firstEmpty,idCol:I.id>=0?colLetter(I.id):null,cols:I};
+  return {activities,focus,threads,cats,windowN,weekly,firstEmpty,idCol:I.id>=0?colLetter(I.id):null,cols:I};
 }
 
 async function sync(interactive){
@@ -243,14 +255,22 @@ async function sync(interactive){
   S.syncing=true;render();
   try{
     const [a,f,t,s]=await batchGet(['Activities!A1:Z1000',"'Focus areas'!A1:Z200",'Threads!A1:Z200','Settings!A1:Z60']);
-    S.lib=parseLibrary(a,f,t,s);S.libSyncedAt=Date.now();lsSet('pc.lib',{raw:[a,f,t,s],at:S.libSyncedAt});
+    S.lib=parseLibrary(a,f,t,s);
+    try{await backfillIds(a)}catch(e){if(e.code==='auth')throw e}
+    S.libSyncedAt=Date.now();lsSet('pc.lib',{raw:[a,f,t,s],at:S.libSyncedAt});
     let ses=null;try{ses=(await batchGet(['Sessions!A1:Z5000'],'UNFORMATTED_VALUE'))[0]}catch(e){if(e.code==='auth')throw e;S.sesErr=e}
     if(ses){S.sheetSessions=parseSessions(ses);S.sheetLoaded=true;S.sesErr=null;lsSet('pc.sessions',S.sheetSessions);await flushQueue()}
     S.libErr=null;S.authNeeded=false;
   }catch(e){if(e.code==='auth')S.authNeeded=true;else S.libErr=e}
   S.syncing=false;mergeSessions();render();
 }
-const loadLibrary=()=>sync(false);
+// Activities need a stable ID so renaming one in the sheet doesn't orphan its history.
+async function backfillIds(rawRows){
+  const lib=S.lib;if(!lib||!lib.idCol)return;const miss=lib.activities.filter(x=>!x.id);if(!miss.length)return;
+  const data=miss.map(x=>({x,id:'act-'+Math.random().toString(36).slice(2,8)}));
+  await api('/values:batchUpdate',{method:'POST',body:JSON.stringify({valueInputOption:'RAW',data:data.map(d=>({range:'Activities!'+lib.idCol+d.x.row,values:[[d.id]]}))})});
+  for(const d of data){d.x.id=d.id;const r=rawRows[d.x.row-1];if(r)r[lib.cols.id]=d.id}
+}
 
 /* ---------- Sessions in the sheet ---------- */
 function parseSessions(rows){
@@ -269,10 +289,17 @@ function sessionRow(d){const t=new Date(d.start);const p=n=>String(n).padStart(2
     d.categories.join(', '),d.focus||'',d.thread||'',d.metronome?d.metronome.bpm:'',d.metronome?d.metronome.pattern:'',!!d.short,!!d.bypass,
     (d.offered||[]).join(', '),(d.addedActivities||[]).join(', '),d.activityId||'',d.start,d.id]}
 function queue(){return lsGet('pc.queue')||[]}
-async function flushQueue(){const q=queue();if(!q.length)return 0;
-  const have=new Set(S.sheetSessions.map(s=>s.id));const todo=q.filter(s=>!have.has(s.id));
-  if(todo.length){await appendRows('Sessions!A1',todo.map(sessionRow));S.sheetSessions=[...todo,...S.sheetSessions].sort((x,y)=>y.start-x.start);lsSet('pc.sessions',S.sheetSessions)}
-  lsSet('pc.queue',[]);return todo.length}
+let flushing=null;
+function flushQueue(){
+  if(flushing)return flushing;
+  flushing=(async()=>{
+    const q=queue();if(!q.length)return 0;
+    const have=new Set(S.sheetSessions.map(s=>s.id));const todo=q.filter(s=>!have.has(s.id));
+    if(todo.length){await appendRows('Sessions!A1',todo.map(sessionRow));S.sheetSessions=[...todo,...S.sheetSessions].sort((x,y)=>y.start-x.start);lsSet('pc.sessions',S.sheetSessions)}
+    const sent=new Set(q.map(s=>s.id));lsSet('pc.queue',queue().filter(s=>!sent.has(s.id)));return todo.length;
+  })().finally(()=>{flushing=null});
+  return flushing;
+}
 function mergeSessions(){const ids=new Set(S.sheetSessions.map(s=>s.id));S.sessions=[...queue().filter(s=>!ids.has(s.id)),...S.sheetSessions].sort((x,y)=>y.start-x.start)}
 
 /* ---------- Library check ---------- */
@@ -320,7 +347,7 @@ function eligible(a,lib){
   return true;
 }
 function balances(lib){
-  const since=Date.now()-lib.windowDays*DAY;const win=S.sessions.filter(s=>s.start>=since);
+  const win=S.sessions.slice(0,lib.windowN);
   const total=win.length;const cb={};
   for(const c of Object.values(lib.cats)){const n=win.reduce((t,s)=>t+catWeight(s,c.code),0);const share=total?n/total:c.target;
     cb[c.code]=Math.min(3,Math.max(.33,(c.target+.03)/(share+.03)));}
@@ -336,7 +363,8 @@ function scoreAll(lib){
   const {cb,fb}=balances(lib);
   return lib.activities.filter(a=>eligible(a,lib)).map(a=>{
     const last=lastDone(a);const iv=a.every||lib.cats[a.cat].interval;
-    const overdue=last==null?1.5:Math.min(5,Math.max(.05,(Date.now()-last)/DAY/iv));
+    // Never tried: overdue since the day it was added, so untried things outrank repeats.
+    const overdue=last==null?Math.min(5,Math.max(1.5,a.added?(Date.now()-a.added)/DAY/iv:1.5)):Math.min(5,Math.max(.05,(Date.now()-last)/DAY/iv));
     const nov=(last==null&&a.added&&Date.now()-a.added<10*DAY)?1.6:1;
     const jit=1+0.08*dayHash(a.name);
     const score=a.pinned?999:overdue*(cb[a.cat]||1)*(fb[a.cat+'|'+(a.focus||'—')]||1)*nov*jit;
@@ -358,27 +386,24 @@ function catsOf(s){return Array.isArray(s.categories)&&s.categories.length?s.cat
 function catWeight(s,c){const cs=catsOf(s);return cs.includes(c)?1/cs.length:0}
 function focusFor(s,c){const home=s.activityCategory||s.category;return c===home?(s.focus||''):''}
 function logCats(L){return Array.isArray(L.categories)&&L.categories.length?L.categories:[L.category]}
-function streak(){const days=new Set(S.sessions.map(s=>startOfDay(s.start)));let d=startOfDay(Date.now());if(!days.has(d))d-=DAY;let n=0;while(days.has(d)){n++;d-=DAY}return n}
-function weekCount(){const now=new Date();const dow=(now.getDay()+6)%7;const mon=startOfDay(Date.now())-dow*DAY;return S.sessions.filter(s=>s.start>=mon).length}
+function streak(){const wk=new Set(S.sessions.map(s=>weekStart(s.start)));let w=weekStart(Date.now());if(!wk.has(w))w=weekStart(w-DAY);
+  let n=0;while(wk.has(w)){n++;w=weekStart(w-DAY)}return n}
+function weekCount(){const mon=weekStart(Date.now());return S.sessions.filter(s=>s.start>=mon).length}
 function level(min){const lv=Math.floor(Math.sqrt(min/30))+1;const lo=30*(lv-1)**2,hi=30*lv**2;return {lv,frac:(min-lo)/(hi-lo)}}
 function xpByCat(sinceMs){const m={};for(const s of S.sessions)if(!sinceMs||s.start>=sinceMs){const cs=catsOf(s);for(const c of cs)m[c]=(m[c]||0)+(s.minutes||0)/cs.length}
   for(const k in m)m[k]=Math.round(m[k]);return m}
 
 /* ---------- Active session (this device) ---------- */
 function saveActive(){if(S.active)lsSet('pc.active',S.active);else try{localStorage.removeItem('pc.active')}catch(e){}}
-async function ensureId(a){
-  if(a.id||!hasToken()||!S.lib||!S.lib.idCol)return a.id;
-  const id='act-'+Math.random().toString(36).slice(2,8);
-  try{const chk=await getValues('Activities!A'+a.row);if(String((chk[0]||[])[0]||'').trim()!==a.name)return null;
-    await updateValues('Activities!'+S.lib.idCol+a.row,[[id]]);a.id=id;return id}catch(e){return null}
-}
 function startSession(a,bypass,offered){
   const doc={activityId:a.id||null,activityName:a.name,category:a.cat,focus:a.focus||'',thread:a.thread||'',link:a.link||'',notes:a.notes||'',
     startedAt:Date.now(),pausedMs:0,pausedAt:null,targetMin:30,scratch:'',bypass:!!bypass,offered:offered||[]};
-  S.active=doc;saveActive();S.tab='today';S.log=null;M.loadedKey=null;metroLoadFor();render();window.scrollTo(0,0);
-  ensureId(a).then(id=>{if(id&&S.active&&S.active.startedAt===doc.startedAt){S.active.activityId=id;saveActive()}});
+  S.active=doc;saveActive();lsSet('pc.seen',Date.now());S.tab='today';S.log=null;M.loadedKey=null;metroLoadFor();render();window.scrollTo(0,0);
 }
 function elapsedMs(a){const now=Date.now();return Math.max(0,now-a.startedAt-(a.pausedMs||0)-(a.pausedAt?now-a.pausedAt:0))}
+// If the app was away for a long stretch mid-session, ask whether that time counts.
+function checkAway(){const a=S.active;if(!a||a.pausedAt||a.awayFrom||S.log)return;const seen=lsGet('pc.seen');
+  if(seen&&seen>=a.startedAt&&Date.now()-seen>90*60000){a.awayFrom=seen;saveActive()}}
 function patchActive(p){if(!S.active)return;Object.assign(S.active,p);saveActive();render()}
 
 /* ---------- Render ---------- */
@@ -396,8 +421,6 @@ function libBanner(){
   } else if(S.libErr){
     const c=S.libErr.code||'';let m;
     if(c==='offline')m='You’re offline.';
-    else if(c==='gis_unavailable')m='Google sign-in didn’t load. Check your connection.';
-    else if(c==='popup_blocked')m='The Google sign-in window was blocked. Allow pop-ups for this site, then try again.';
     else if(c==='auth_denied')m='Google sign-in was declined.';
     else if(c==='http_403')m='Google refused access to the sheet. Sign in with the account that owns it.';
     else if(c==='http_404')m='The library sheet wasn’t found.';
@@ -437,7 +460,7 @@ function renderToday(){
       return w?`<div class="banner" role="status"><span class="msg"><span class="pill warn">SHEET CHECK</span> ${w} ${w===1?'problem':'problems'} in your library sheet.</span><button class="btn" data-act="review-issues">Review</button></div>`:''})()}
     <h1>Pick one.<br><span class="sub">30 minutes, starting now.</span></h1>
     <div class="stats">
-      <div class="stat"><span class="label">Streak</span><span class="v">${streak()} ${streak()===1?'day':'days'}</span></div>
+      <div class="stat"><span class="label">Streak</span><span class="v">${streak()} ${streak()===1?'week':'weeks'}</span></div>
       <div class="stat"><span class="label">This week · ${wk} / ${target}</span><div class="segs">${Array.from({length:Math.max(target,wk)},(_,i)=>`<span class="${i<wk?'on':''}"></span>`).join('')}</div></div>
     </div>
     ${choices}
@@ -463,6 +486,7 @@ function renderSession(){
   const pct=Math.min(100,ms/(a.targetMin*60000)*100);const catName=(S.lib&&S.lib.cats[a.category]||{}).name||FALLBACK_NAMES[a.category]||'';
   return `<div class="wrap">
     <header class="top"><span class="label">Session in progress</span><span class="pill" style="background:${col(a.category)};color:#141518">${esc(a.category)} · ${esc(catName.toUpperCase())}</span></header>
+    ${a.awayFrom?`<div class="banner" role="status"><span class="msg">This session has been open since you last looked at ${new Date(a.awayFrom).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}${daysAgo(a.awayFrom)?' ('+fmtAgo(a.awayFrom)+')':''}. Count the time since then?</span><button class="btn" data-act="away-keep">Count it</button><button class="btn primary" data-act="away-trim">Don’t count it</button></div>`:''}
     <div style="display:flex;flex-direction:column;gap:6px"><h1 style="font-size:28px">${esc(a.activityName)}</h1>
       ${a.link?`<a href="${esc(a.link)}" target="_blank" rel="noopener" style="font-size:14px">Open reference ↗</a>`:''}
       ${a.notes?`<span class="note">${esc(a.notes)}</span>`:''}</div>
@@ -480,14 +504,21 @@ function renderSession(){
 }
 
 /* ---------- Metronome ---------- */
-const M={bpm:100,pattern:['a','n','n','n'],playing:false,ctx:null,next:0,beat:0,cur:-1,timer:null,queue:[],wake:null,key:null,loadedKey:null,saveT:null,usedFor:null};
+// The whole bar is rendered into one looping audio buffer, so playback doesn't depend on
+// timers (which browsers slow down or stop for background pages). While the app is hidden the
+// sound is routed through a media element, which lets the phone treat it as playing media.
+const M={bpm:100,pattern:['a','n','n','n'],playing:false,ctx:null,src:null,t0:0,beatDur:0.6,barDur:2.4,cur:-1,wake:null,loadedKey:null,usedFor:null,
+  direct:null,stream:null,el:null,elOk:false,retuneT:null};
 (()=>{const d=lsGet('pc.metro');if(d&&d.bpm){M.bpm=d.bpm;if(Array.isArray(d.pattern)&&d.pattern.length)M.pattern=d.pattern}})();
 const clampBpm=v=>Math.max(20,Math.min(300,Math.round(v)||M.bpm));
 function metroKey(){const a=S.active;return a?'n_'+a.activityName:null}
+function lastTempoFor(a){if(!a)return null;for(const s of S.sessions){
+  if(((a.activityId&&s.activityId===a.activityId)||s.activityName===a.activityName)&&s.metronome&&s.metronome.bpm)return {bpm:s.metronome.bpm,pattern:s.metronome.pattern,at:s.start}}return null}
 function beatsHtml(){return M.pattern.map((s,i)=>`<button type="button" class="beat ${s}${i===M.cur&&M.playing?' now':''}" data-m="cycle" data-i="${i}" aria-label="Beat ${i+1}: ${s==='a'?'accent':s==='n'?'normal':'silent'}"><i></i><span>${i+1}</span></button>`).join('')}
 function metroHtml(){
+  const last=lastTempoFor(S.active);
   return `<div class="card metro" id="metro">
-    <div class="mhead"><span class="label">Metronome</span><button class="btn ${M.playing?'':'primary'}" data-m="toggle" id="m-play" style="min-width:96px">${M.playing?'Stop':'Start'}</button></div>
+    <div class="mhead"><span class="label">Metronome${last?' · last session '+last.bpm+' BPM':''}</span><button class="btn ${M.playing?'':'primary'}" data-m="toggle" id="m-play" style="min-width:96px">${M.playing?'Stop':'Start'}</button></div>
     <div class="bpmrow">
       <button type="button" data-m="bpm" data-d="-5" aria-label="Down 5 BPM">−5</button><button type="button" data-m="bpm" data-d="-1" aria-label="Down 1 BPM">−1</button>
       <div class="bpmbox"><input type="number" id="m-bpm" min="20" max="300" inputmode="numeric" value="${M.bpm}" aria-label="Beats per minute"><span>BPM</span></div>
@@ -501,22 +532,49 @@ function metroHtml(){
 function metroUI(){const i=$('#m-bpm');if(i&&document.activeElement!==i)i.value=M.bpm;const s=$('#m-slider');if(s)s.value=M.bpm;
   const p=$('#m-play');if(p){p.textContent=M.playing?'Stop':'Start';p.classList.toggle('primary',!M.playing)}
   const b=$('#m-beats');if(b)b.innerHTML=beatsHtml();const c=$('#m-count');if(c)c.textContent=M.pattern.length}
-function metroChanged(){const v={bpm:M.bpm,pattern:[...M.pattern]};lsSet('pc.metro',v);const k=metroKey();if(k){const all=lsGet('pc.metroBy')||{};all[k]=v;lsSet('pc.metroBy',all)}}
-function metroLoadFor(){const k=metroKey();if(!k||M.loadedKey===k||M.playing)return;M.loadedKey=k;const v=(lsGet('pc.metroBy')||{})[k];
-  if(v){if(v.bpm)M.bpm=clampBpm(v.bpm);if(Array.isArray(v.pattern)&&v.pattern.length)M.pattern=[...v.pattern]}metroUI()}
+function metroChanged(){const v={bpm:M.bpm,pattern:[...M.pattern],at:Date.now()};lsSet('pc.metro',v);const k=metroKey();if(k){const all=lsGet('pc.metroBy')||{};all[k]=v;lsSet('pc.metroBy',all)}
+  if(M.playing){clearTimeout(M.retuneT);M.retuneT=setTimeout(metroRetune,70)}}
+// Tempo for an activity: the newer of what this device remembers and the last session in the sheet.
+function metroLoadFor(){const k=metroKey();if(!k||M.loadedKey===k||M.playing)return;M.loadedKey=k;
+  const loc=(lsGet('pc.metroBy')||{})[k];const sh=lastTempoFor(S.active);const v=sh&&(!loc||!loc.at||sh.at>loc.at)?sh:loc;
+  if(v){if(v.bpm)M.bpm=clampBpm(v.bpm);const pat=(Array.isArray(v.pattern)?v.pattern:String(v.pattern||'').split('')).filter(c=>c==='a'||c==='n'||c==='m');if(pat.length)M.pattern=pat}
+  metroUI()}
 function setBpm(v){M.bpm=clampBpm(v);metroUI();metroChanged()}
-function click(t,acc){const o=M.ctx.createOscillator(),g=M.ctx.createGain();o.type='triangle';o.frequency.value=acc?1760:1050;
-  g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(acc?0.95:0.55,t+0.002);g.gain.exponentialRampToValueAtTime(0.0001,t+0.055);o.connect(g);g.connect(M.ctx.destination);o.start(t);o.stop(t+0.07)}
-function schedule(){const ahead=document.visibilityState==='hidden'?1.6:0.12;
-  while(M.next<M.ctx.currentTime+ahead){const n=M.pattern.length;const i=M.beat%n;const st=M.pattern[i];if(st!=='m')click(M.next,st==='a');M.queue.push({t:M.next,b:i});M.next+=60/M.bpm;M.beat=(i+1)%n}}
-function frame(){if(!M.playing)return;const now=M.ctx.currentTime;let changed=false;while(M.queue.length&&M.queue[0].t<=now){M.cur=M.queue.shift().b;changed=true}
-  if(changed)document.querySelectorAll('#m-beats .beat').forEach((el,i)=>el.classList.toggle('now',i===M.cur));requestAnimationFrame(frame)}
+function clickInto(data,at,sr,acc){const f=acc?1760:1050,peak=acc?0.95:0.55,len=Math.floor(sr*0.06),atk=Math.max(1,Math.floor(sr*0.002));
+  for(let i=0;i<len&&at+i<data.length;i++){const env=i<atk?i/atk:Math.exp(-(i-atk)/sr/0.007);
+    data[at+i]+=peak*env*(2/Math.PI)*Math.asin(Math.sin(2*Math.PI*f*i/sr))}}
+function buildBar(){const sr=M.ctx.sampleRate,n=M.pattern.length,bd=60/M.bpm;const frames=Math.max(1,Math.round(n*bd*sr));
+  const buf=M.ctx.createBuffer(1,frames,sr);const data=buf.getChannelData(0);
+  M.pattern.forEach((st,i)=>{if(st!=='m')clickInto(data,Math.round(i*bd*sr),sr,st==='a')});
+  return {buf,barDur:frames/sr,beatDur:frames/sr/n}}
+function startSource(bar,offset){const src=M.ctx.createBufferSource();src.buffer=bar.buf;src.loop=true;src.connect(M.direct);src.connect(M.stream);
+  const when=M.ctx.currentTime+0.03;src.start(when,offset);if(M.src){try{M.src.stop(when)}catch(e){}}
+  M.src=src;M.t0=when-offset;M.barDur=bar.barDur;M.beatDur=bar.beatDur}
+function barPos(){return ((M.ctx.currentTime-M.t0)%M.barDur+M.barDur)%M.barDur}
+// Tempo or pattern changed mid-play: swap in a new bar at the same point in the beat.
+function metroRetune(){if(!M.playing||!M.ctx)return;const beats=barPos()/M.beatDur;const bar=buildBar();startSource(bar,(beats%M.pattern.length)*bar.beatDur);setMedia()}
+function setRoute(){if(!M.direct)return;const viaEl=M.elOk&&document.visibilityState==='hidden'&&M.el&&!M.el.paused;const t=M.ctx.currentTime;
+  M.direct.gain.setValueAtTime(viaEl?0:1,t);M.stream.gain.setValueAtTime(viaEl?1:0,t)}
+function setMedia(){if(!('mediaSession' in navigator))return;try{
+  navigator.mediaSession.metadata=new MediaMetadata({title:'Metronome · '+M.bpm+' BPM',artist:'Practice Console'});
+  navigator.mediaSession.playbackState=M.playing?'playing':'paused'}catch(e){}}
+function frame(){if(!M.playing)return;if(M.ctx.currentTime>=M.t0){const b=Math.floor(barPos()/M.beatDur)%M.pattern.length;
+  if(b!==M.cur){M.cur=b;document.querySelectorAll('#m-beats .beat').forEach((el,i)=>el.classList.toggle('now',i===M.cur))}}requestAnimationFrame(frame)}
 async function wakeOn(){try{if(navigator.wakeLock&&!M.wake){M.wake=await navigator.wakeLock.request('screen');M.wake.addEventListener('release',()=>{M.wake=null})}}catch(e){M.wake=null}}
 function metroStart(){const AC=window.AudioContext||window.webkitAudioContext;if(!AC){toast('Audio isn’t available in this browser');return}
-  if(!M.ctx)M.ctx=new AC();M.ctx.resume();M.playing=true;M.beat=0;M.queue=[];M.next=M.ctx.currentTime+0.08;schedule();M.timer=setInterval(schedule,25);
-  M.usedFor=S.active?S.active.startedAt:null;wakeOn();requestAnimationFrame(frame);metroUI()}
-function metroStop(){if(!M.playing)return;M.playing=false;clearInterval(M.timer);M.queue=[];M.cur=-1;if(M.wake){M.wake.release().catch(()=>{});M.wake=null}metroUI()}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&M.playing){wakeOn();if(M.ctx)M.ctx.resume()}});
+  if(!M.ctx){M.ctx=new AC();M.direct=M.ctx.createGain();M.direct.connect(M.ctx.destination);M.stream=M.ctx.createGain();M.stream.gain.value=0;
+    try{const dest=M.ctx.createMediaStreamDestination();M.stream.connect(dest);M.el=new Audio();M.el.srcObject=dest.stream;
+      M.el.addEventListener('pause',()=>{if(M.playing)setRoute()});M.el.addEventListener('play',setRoute)}catch(e){M.el=null}
+    if('mediaSession' in navigator){try{navigator.mediaSession.setActionHandler('pause',metroStop);navigator.mediaSession.setActionHandler('stop',metroStop);
+      navigator.mediaSession.setActionHandler('play',()=>{if(!M.playing)metroStart()})}catch(e){}}}
+  M.ctx.resume();M.playing=true;M.cur=-1;startSource(buildBar(),0);
+  if(M.el)M.el.play().then(()=>{M.elOk=true;setRoute()}).catch(()=>{M.elOk=false;setRoute()});
+  M.usedFor=S.active?S.active.startedAt:null;setRoute();setMedia();wakeOn();requestAnimationFrame(frame);metroUI()}
+function metroStop(){if(!M.playing)return;M.playing=false;clearTimeout(M.retuneT);if(M.src){try{M.src.stop()}catch(e){}M.src=null}
+  if(M.el){try{M.el.pause()}catch(e){}}M.cur=-1;if(M.wake){M.wake.release().catch(()=>{});M.wake=null}setMedia();metroUI()}
+document.addEventListener('visibilitychange',()=>{if(!M.playing)return;
+  if(document.visibilityState==='visible'){wakeOn();if(M.ctx)M.ctx.resume();if(M.el&&M.el.paused)M.el.play().catch(()=>{});requestAnimationFrame(frame)}
+  setRoute()});
 let holdT=null,holdI=null;
 function holdStop(){clearTimeout(holdT);clearInterval(holdI);holdT=holdI=null}
 document.addEventListener('pointerdown',ev=>{const b=ev.target.closest('[data-m="bpm"]');if(!b)return;ev.preventDefault();const d=+b.dataset.d;setBpm(M.bpm+d);
@@ -568,7 +626,7 @@ function addFormHtml(p){
 function renderProgress(){
   const lib=S.lib;const xpAll=xpByCat();const cats=CAT_ORDER.filter(c=>!lib||lib.cats[c]);
   const totalMin=S.sessions.reduce((s,x)=>s+(x.minutes||0),0);
-  const winDays=lib?lib.windowDays:14;const since=Date.now()-winDays*DAY;const win=S.sessions.filter(s=>s.start>=since);
+  const win=S.sessions.slice(0,lib?lib.windowN:12);
   const catRows=cats.map(c=>{const {lv,frac}=level(xpAll[c]||0);const n=win.reduce((t,s)=>t+catWeight(s,c),0);const share=win.length?n/win.length:0;const tgt=lib?lib.cats[c].target:1/cats.length;
     const flag=win.length>=4?(share<tgt*.5?'<span class="pill warn">UNDER</span>':share>tgt*1.8?'<span class="pill">HEAVY</span>':''):'';
     return `<div class="li"><span class="code sm" style="background:${col(c)}">${c}</span><span class="body"><span class="t">${esc((lib&&lib.cats[c]||{}).name||FALLBACK_NAMES[c])} <span class="mono" style="color:var(--muted);font-weight:400;font-size:12px">LV ${lv}</span></span><span class="prog" style="height:6px"><i style="width:${Math.round(frac*100)}%;height:6px;background:${col(c)}"></i></span></span><span class="r">${Math.round(share*100)}% / ${Math.round(tgt*100)}%<br>${Math.round((xpAll[c]||0)/60*10)/10} h</span>${flag}</div>`}).join('');
@@ -581,19 +639,19 @@ function renderProgress(){
     ${libBanner()}${dbBanner()}
     <div class="card" style="display:flex;flex-direction:column;gap:12px"><div class="row" style="justify-content:space-between"><h2>Last 16 weeks</h2><span class="label">Color = main category that day</span></div><div class="heat">${heatmapSvg()}</div></div>
     <div class="grid2">
-      <div class="card"><div class="row" style="justify-content:space-between;margin-bottom:6px"><h2>Categories</h2><span class="label">Share last ${winDays} days / target</span></div><div class="list">${catRows}</div></div>
+      <div class="card"><div class="row" style="justify-content:space-between;margin-bottom:6px"><h2>Categories</h2><span class="label">Share of last ${win.length} sessions / target</span></div><div class="list">${catRows}</div></div>
       <div class="card"><h2 style="margin-bottom:6px">Threads</h2><div class="list">${thRows||'<p class="note">Threads you add in the sheet appear here with how long each has been idle.</p>'}</div></div>
     </div>
     <div class="card"><h2 style="margin-bottom:6px">Recent sessions</h2><div class="list">${recent||'<p class="note">Your logged sessions will appear here. Start one from Today.</p>'}</div></div>
   </div>`;
 }
 function heatmapSvg(){
-  const weeks=16,cell=16,gap=3;const today=startOfDay(Date.now());const dow=(new Date().getDay()+6)%7;const start=today-(dow+7*(weeks-1))*DAY;
+  const weeks=16,cell=16,gap=3;const today=startOfDay(Date.now());const start=addDays(weekStart(Date.now()),-7*(weeks-1));
   const byDay={};for(const s of S.sessions){const d=startOfDay(s.start);if(d<start)continue;const cs=catsOf(s);const o=byDay[d]=byDay[d]||{};for(const c of cs)o[c]=(o[c]||0)+(s.minutes||0)/cs.length}
   const W=weeks*(cell+gap)+28,H=7*(cell+gap)+20;let out=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Practice calendar for the last ${weeks} weeks">`;
   ['M','','W','','F','','S'].forEach((l,i)=>{if(l)out+=`<text x="0" y="${20+i*(cell+gap)+12}" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono, monospace">${l}</text>`});
-  for(let w=0;w<weeks;w++){const ws=start+w*7*DAY;const d0=new Date(ws);if(d0.getDate()<=7)out+=`<text x="${28+w*(cell+gap)}" y="10" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono, monospace">${d0.toLocaleDateString(undefined,{month:'short'})}</text>`;
-    for(let d=0;d<7;d++){const t=ws+d*DAY;if(t>today)continue;const e=byDay[t];let fill='var(--panel-2)',op=1,title=fmtDate(t)+': no session';
+  for(let w=0;w<weeks;w++){const ws=addDays(start,w*7);const d0=new Date(ws);if(d0.getDate()<=7)out+=`<text x="${28+w*(cell+gap)}" y="10" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono, monospace">${d0.toLocaleDateString(undefined,{month:'short'})}</text>`;
+    for(let d=0;d<7;d++){const t=addDays(ws,d);if(t>today)continue;const e=byDay[t];let fill='var(--panel-2)',op=1,title=fmtDate(t)+': no session';
       if(e){const [c,m]=Object.entries(e).sort((a,b)=>b[1]-a[1])[0];const tot=Math.round(Object.values(e).reduce((a,b)=>a+b,0));fill=col(c);op=Math.min(1,.45+tot/180);title=fmtDate(t)+': '+tot+' min, mostly '+c}
       out+=`<rect x="${28+w*(cell+gap)}" y="${20+d*(cell+gap)}" width="${cell}" height="${cell}" rx="3" fill="${fill}" fill-opacity="${op}"><title>${esc(title)}</title></rect>`}}
   return out+'</svg>';
@@ -669,7 +727,8 @@ document.addEventListener('click',async ev=>{
   else if(act==='review-issues'){S.tab='library';render();const el=$('#issues');if(el)el.scrollIntoView();else window.scrollTo(0,0)}
   else if(act==='start-lib'){const a=S.lib.activities.find(x=>x.row===+b.dataset.row);if(!a)return;if(!a.cat){toast('Give this activity a category in the sheet first');return}startSession(a,true,(S._picks||[]).map(x=>keyOf(x.a)))}
   else if(act==='pause'){const a=S.active;if(a.pausedAt)patchActive({pausedMs:(a.pausedMs||0)+(Date.now()-a.pausedAt),pausedAt:null});else patchActive({pausedAt:Date.now()})}
-  else if(act==='plus')patchActive({targetMin:(S.active.targetMin||30)+15})
+  else if(act==='away-keep'){delete S.active.awayFrom;saveActive();render()}
+  else if(act==='away-trim'){const a=S.active;a.pausedMs=(a.pausedMs||0)+(Date.now()-a.awayFrom);delete a.awayFrom;saveActive();render()}
   else if(act==='discard-ask'){const el=$('#discard-confirm');if(el)el.hidden=false}
   else if(act==='discard'){clearDrafts();metroStop();M.loadedKey=null;S.active=null;S.log=null;saveActive();render()}
   else if(act==='finish'){const a=S.active;const sc=$('#scratch');if(sc){a.scratch=sc.value;saveActive()}
@@ -686,15 +745,19 @@ document.addEventListener('click',async ev=>{
 });
 document.addEventListener('input',ev=>{
   if(ev.target.id==='lib-q'){S.libFilter=ev.target.value;render()}
-  if(ev.target.id==='log-min'&&S.log){S.log.minutes=parseFloat(ev.target.value)||0;S.log.short=false;const x=document.querySelector('header.top .mono');if(x)x.textContent='+'+Math.max(0,Math.round(S.log.minutes))+' XP'}
+  if(ev.target.id==='log-min'&&S.log){S.log.minutes=parseFloat(ev.target.value)||0;const x=document.querySelector('header.top .mono');if(x)x.textContent='+'+Math.max(0,Math.round(S.log.minutes))+' XP'}
   if(ev.target.id==='log-note'&&S.log)S.log.note=ev.target.value;
   if((ev.target.id==='log-min'||ev.target.id==='log-note')&&S.log)persistLog();
   if(ev.target.id==='scratch'&&S.active){S.active.scratch=ev.target.value;saveActive()}
 });
 function persistLog(){if(S.log&&S.active)lsSet('pc.log',{startedAt:S.active.startedAt,log:S.log})}
 function clearDrafts(){try{localStorage.removeItem('pc.log')}catch(e){}}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')persistLog();
-  else if(hasToken()&&!S.syncing&&(!S.libSyncedAt||Date.now()-S.libSyncedAt>5*60000))sync(false)});
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden'){persistLog();if(S.active)lsSet('pc.seen',Date.now());return}
+  const was=S.active&&S.active.awayFrom;checkAway();if(S.active&&S.active.awayFrom&&!was)render();
+  if(hasToken()){if(!S.syncing&&(!S.libSyncedAt||Date.now()-S.libSyncedAt>5*60000))sync(false)}
+  else if(S.tab==='today'&&!S.active&&!M.playing)trySilent();
+});
 document.addEventListener('submit',async ev=>{
   const f=ev.target.closest('.addform');if(!f)return;ev.preventDefault();const p=f.dataset.p;
   const name=$('#'+p+'-add-name').value.trim();const msg=$('#'+p+'-add-msg');if(!name)return;
@@ -730,16 +793,18 @@ async function saveSession(){
   render();
 }
 setInterval(()=>{if(S.tab!=='today'||!S.active||S.log)return;const el=$('#timer');if(!el)return;const ms=elapsedMs(S.active);el.textContent=String(Math.floor(ms/60000)).padStart(2,'0')+':'+String(Math.floor(ms/1000)%60).padStart(2,'0');const pr=$('#tprog');if(pr)pr.style.width=Math.min(100,ms/(S.active.targetMin*60000)*100)+'%';
-  const fb=$('#finish-btn');if(fb)fb.classList.toggle('done',ms>=30*60000)},1000);
+  const fb=$('#finish-btn');if(fb)fb.classList.toggle('done',ms>=30*60000);
+  if(document.visibilityState==='visible'&&!S.active.awayFrom&&Math.floor(ms/1000)%20===0)lsSet('pc.seen',Date.now())},1000);
 
 /* ---------- Boot ---------- */
 handleOAuthReturn();
 const cached=lsGet('pc.lib');if(cached&&cached.raw){try{S.lib=parseLibrary(...cached.raw);S.libSyncedAt=cached.at}catch(e){}}
 S.sheetSessions=lsGet('pc.sessions')||[];
 S.active=lsGet('pc.active');
-if(S.active){const sl=lsGet('pc.log');if(sl&&sl.startedAt===S.active.startedAt&&sl.log)S.log=sl.log;metroLoadFor()}
-mergeSessions();render();
-if(hasToken())sync(false);else{S.authNeeded=true;render()}
+mergeSessions();
+if(S.active){const sl=lsGet('pc.log');if(sl&&sl.startedAt===S.active.startedAt&&sl.log)S.log=sl.log;checkAway();metroLoadFor()}
+render();
+if(hasToken())sync(false);else if(!trySilent()){S.authNeeded=true;render()}
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 })();
 </script>
